@@ -1,5 +1,6 @@
 import { execSync } from "child_process";
 import fs from "fs";
+import os from "os";
 import { Actor } from "apify";
 
 await Actor.init();
@@ -59,7 +60,7 @@ console.log("Duración:", duration);
 // ==========================
 // 🧠 DETECTAR RAM DISPONIBLE
 // ==========================
-const totalMem = require("os").totalmem() / 1024 / 1024; // MB
+const totalMem = os.totalmem() / 1024 / 1024;
 
 console.log("RAM disponible:", totalMem, "MB");
 
