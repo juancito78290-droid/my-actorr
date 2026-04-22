@@ -1,14 +1,18 @@
 FROM apify/actor-node:18
 
 USER root
-RUN apk add --no-cache ffmpeg
 
-WORKDIR /usr/src/app
+# Instalar FFmpeg
+RUN apt-get update && apt-get install -y ffmpeg
+
+# Volver a usuario normal
+USER myuser
+
+# Copiar archivos
+COPY package*.json ./
+RUN npm install
 
 COPY . ./
 
-RUN npm install
-
-USER myuser
-
+# Ejecutar tu actor
 CMD ["node", "src/main.js"]
