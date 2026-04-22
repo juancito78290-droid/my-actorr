@@ -1,122 +1,140 @@
 import fs from "fs";
-import { execSync } from "child_process";
-import { Actor } from "apify";
+import fetch from "node-fetch";
+import { spawn } from "child_process";
+import os from "os";
 
-await Actor.init();
-
-console.log("🔥 MODO PRO ACTIVADO 🔥");
-
-const input = await Actor.getInput();
-
-const {
-    videoUrl,
-    audioUrl,
-    subtitleText = "Texto por defecto"
-} = input;
-
-// --------------------
-// 📥 DESCARGA SEGURA
-// --------------------
-const download = async (url, path) => {
+// ==========================
+// DESCARGA SEGURA
+// ==========================
+async function download(url, path) {
     const res = await fetch(url);
+    const buffer = await res.arrayBuffer();
+    fs.writeFileSync(path, Buffer.from(buffer));
+}
 
-    if (!res.ok) {
-        throw new Error(`Error descargando: ${url} - ${res.status}`);
-    }
+// ==========================
+// DURACIÓN VIDEO
+// ==========================
+function getDuration() {
+    return new Promise((resolve) => {
+        const ff = spawn("ffprobe", [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            "video.mp4"
+        ]);
 
-    const buffer = Buffer.from(await res.arrayBuffer());
-    fs.writeFileSync(path, buffer);
-};
+        let data = "";
+        ff.stdout.on("data", chunk => data += chunk);
 
-console.log("⬇️ Descargando archivos...");
+        ff.on("close", () => {
+            resolve(parseFloat(data));
+        });
+    });
+}
+
+// ==========================
+// EJECUTAR FFMPEG (SEGURO)
+// ==========================
+function runFFmpeg(args) {
+    return new Promise((resolve, reject) => {
+        const ff = spawn("ffmpeg", args, {
+            stdio: "inherit"
+        });
+
+        ff.on("close", code => {
+            if (code === 0) resolve();
+            else reject(new Error("FFmpeg falló"));
+        });
+    });
+}
+
+// ==========================
+// MAIN
+// ==========================
+console.log("🔥 MODO PRO ULTRA ESTABLE 🔥");
+
+// URLs
+const videoUrl = "TU_VIDEO_URL";
+const audioUrl = "TU_AUDIO_URL";
+
+// Descargar
+console.log("⬇️ Descargando...");
 await download(videoUrl, "video.mp4");
 await download(audioUrl, "audio.mp3");
 
-// --------------------
-// ⏱ DURACIÓN VIDEO
-// --------------------
-console.log("⏱ Analizando video...");
-const duration = execSync(
-    `ffprobe -v error -show_entries format=duration -of csv=p=0 video.mp4`
-)
-    .toString()
-    .trim();
+// Duración
+console.log("⏱ Analizando...");
+const duration = await getDuration();
+console.log("Duración:", duration);
 
-const videoDuration = Math.floor(parseFloat(duration));
-console.log("Duración:", videoDuration);
+// Subtítulos simples
+fs.writeFileSync("subs.srt", `1
+00:00:00,000 --> 00:00:${Math.floor(duration).toString().padStart(2, "0")},000
+Hola
+Este video tiene audio nuevo
+`);
 
-// --------------------
-// 📝 GENERAR SRT REAL
-// --------------------
-console.log("📝 Generando subtítulos...");
+// Cortar audio
+console.log("✂️ Cortando audio...");
+await runFFmpeg([
+    "-y",
+    "-i", "audio.mp3",
+    "-t", duration.toString(),
+    "-c", "copy",
+    "audio_cut.mp3"
+]);
 
-const srt = `1
-00:00:00,000 --> 00:00:${videoDuration
-    .toString()
-    .padStart(2, "0")},000
-${subtitleText}
-`;
+// ==========================
+// CONTROL DE RAM REAL
+// ==========================
+const ramMB = os.totalmem() / 1024 / 1024;
+console.log("RAM:", ramMB);
 
-fs.writeFileSync("subs.srt", srt);
-
-// DEBUG opcional
-console.log(fs.readFileSync("subs.srt", "utf-8"));
-
-// --------------------
-// ✂️ CORTAR AUDIO
-// --------------------
-console.log("✂️ Ajustando audio...");
-
-execSync(
-    `ffmpeg -y -i audio.mp3 -t ${videoDuration} -c copy audio_cut.mp3`,
-    { stdio: "inherit" }
-);
-
-// --------------------
-// 🧠 AJUSTE SEGÚN RAM
-// --------------------
-const totalMemMB = (await import("os")).totalmem() / 1024 / 1024;
-
+// 🔥 CLAVES PARA NO MORIR
 let scale = "720:-2";
-let crf = 28;
+let crf = "28";
 
-if (totalMemMB < 2048) {
-    scale = "480:-2";
-    crf = 32;
-} else if (totalMemMB > 8000) {
-    scale = "1080:-2";
-    crf = 23;
+if (ramMB > 8000) {
+    scale = "854:-2";
+    crf = "26";
+}
+if (ramMB > 16000) {
+    scale = "960:-2";
+    crf = "25";
 }
 
-console.log(`RAM: ${totalMemMB.toFixed(0)} MB`);
-console.log(`Resolución: ${scale} | CRF: ${crf}`);
+// 🚫 NUNCA 1080 con subtitles en Apify
+// (eso fue lo que te mató)
+console.log("Resolución:", scale);
 
-// --------------------
-// 🎬 FFmpeg PRO
-// --------------------
-console.log("⚙️ Ejecutando FFmpeg PRO...");
+// ==========================
+// FFMPEG FINAL (OPTIMIZADO)
+// ==========================
+console.log("⚙️ Procesando...");
 
-execSync(`
-ffmpeg -y \
--i video.mp4 \
--i audio_cut.mp3 \
--vf "scale=${scale},subtitles=subs.srt:force_style='FontName=DejaVuSans,FontSize=28,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=2'" \
--map 0:v:0 -map 1:a:0 \
--c:v libx264 -preset veryfast -crf ${crf} \
--c:a aac -b:a 128k \
--shortest \
-output.mp4
-`, { stdio: "inherit" });
+await runFFmpeg([
+    "-y",
+    "-i", "video.mp4",
+    "-i", "audio_cut.mp3",
 
-// --------------------
-// 📤 SUBIR RESULTADO
-// --------------------
-console.log("📤 Subiendo resultado...");
+    "-vf", `scale=${scale},subtitles=subs.srt:force_style='FontName=Arial,FontSize=24,Outline=1'`,
 
-await Actor.setValue("OUTPUT", fs.createReadStream("output.mp4"), {
-    contentType: "video/mp4",
-});
+    "-map", "0:v:0",
+    "-map", "1:a:0",
 
-console.log("✅ TODO PERFECTO");
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-crf", crf,
 
-await Actor.exit();
+    "-threads", "2",        // 🔥 clave anti kill
+    "-max_muxing_queue_size", "1024",
+
+    "-c:a", "aac",
+    "-b:a", "128k",
+
+    "-shortest",
+    "output.mp4"
+]);
+
+console.log("✅ LISTO SIN MUERTES");
