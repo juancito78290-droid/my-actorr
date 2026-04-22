@@ -1,41 +1,63 @@
-import { Actor } from 'apify';
-import { execSync } from 'child_process';
 import fs from 'fs';
+import https from 'https';
+import { execSync } from 'child_process';
+import { Actor } from 'apify';
 
-await Actor.init();
+// 🔗 URL del video
+const url = 'https://api.apify.com/v2/key-value-stores/lH2gvPfXIkqZQpEqC/records/video-f75e06531605bbdc76401cbd19c453af-b0442d.mp4?signature=z88rM9dFKbyB3j1cP4VD';
 
-try {
-    console.log('🚀 Iniciando FFmpeg...');
+// 📥 función para descargar
+function download(url, path) {
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(path);
 
-    // URL de video (puedes cambiarla luego)
-    const videoUrl = 'https://filesamples.com/samples/video/mp4/sample_640x360.mp4';
+        https.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0'
+            }
+        }, (res) => {
 
-    const inputPath = '/tmp/input.mp4';
-    const outputPath = '/tmp/output.mp4';
+            console.log('STATUS:', res.statusCode);
 
-    // Descargar video
-    const response = await fetch(videoUrl);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(inputPath, buffer);
+            // aceptar solo 200 y 206
+            if (res.statusCode !== 200 && res.statusCode !== 206) {
+                reject(new Error('Status: ' + res.statusCode));
+                return;
+            }
 
-    console.log('✅ Video descargado');
+            res.pipe(file);
 
-    // Editar video (ejemplo: reducir tamaño)
-    execSync(`ffmpeg -i ${inputPath} -vf scale=320:240 ${outputPath}`);
+            file.on('finish', () => {
+                file.close(resolve);
+            });
 
-    console.log('🎬 Video procesado');
-
-    // Leer resultado
-    const resultBuffer = fs.readFileSync(outputPath);
-
-    // Guardar resultado en dataset
-    await Actor.pushData({
-        message: 'Video procesado con FFmpeg ✅',
-        size: resultBuffer.length
+        }).on('error', reject);
     });
-
-} catch (error) {
-    console.error('❌ Error:', error);
-} finally {
-    await Actor.exit();
 }
+
+// 🚀 ejecución principal
+(async () => {
+    await Actor.init();
+
+    try {
+        console.log('Descargando...');
+        await download(url, 'input.mp4');
+
+        console.log('Procesando con ffmpeg...');
+        execSync('ffmpeg -y -i input.mp4 -c copy output.mp4');
+
+        console.log('Guardando en Apify Storage...');
+
+        // guardar el video en storage
+        await Actor.setValue('output-video', fs.readFileSync('output.mp4'), {
+            contentType: 'video/mp4'
+        });
+
+        console.log('✅ Listo');
+
+    } catch (err) {
+        console.error('❌ Error:', err.message);
+    }
+
+    await Actor.exit();
+})();
