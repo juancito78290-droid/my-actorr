@@ -1,46 +1,99 @@
 import { Actor } from 'apify';
 import fs from 'fs';
-import fetch from 'node-fetch';
+import https from 'https';
 import { execSync } from 'child_process';
 
 await Actor.init();
 
+console.log("🎬 PROCESO: VIDEO + AUDIO + SUBTITULOS");
+
+// INPUT
 const input = await Actor.getInput();
-const { url, texto } = input;
+const { videoUrl, audioUrl, subtitleText } = input;
 
-console.log('🔥 CODIGO CON SUBTITULOS DINAMICOS 🔥');
-
-// Descargar video
-console.log('Descargando...');
-const response = await fetch(url);
-
-if (!response.ok) {
-    throw new Error(`Error descargando video: ${response.status}`);
+if (!videoUrl || !audioUrl || !subtitleText) {
+    throw new Error('Faltan datos en el input');
 }
 
-const buffer = await response.arrayBuffer();
-fs.writeFileSync('input.mp4', Buffer.from(buffer));
-
-console.log('Procesando con subtítulos...');
-
-// Escapar caracteres peligrosos para FFmpeg
-const safeText = texto
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/,/g, '\\,');
-
-// FFmpeg con texto dinámico
-execSync(`
-ffmpeg -i input.mp4 -vf "drawtext=text='${safeText}':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=h-100" -codec:a copy output.mp4
-`, { stdio: 'inherit' });
-
-console.log('Guardando en Apify...');
-
-// Subir resultado
-await Actor.setValue('OUTPUT_VIDEO', fs.readFileSync('output.mp4'), {
-    contentType: 'video/mp4',
+// DESCARGAR ARCHIVOS
+const download = (url, path) => new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(path);
+    https.get(url, (res) => {
+        if (res.statusCode !== 200) {
+            reject(`Error descargando: ${url}`);
+            return;
+        }
+        res.pipe(file);
+        file.on('finish', () => file.close(resolve));
+    }).on('error', reject);
 });
 
-console.log('✅ VIDEO CON SUBTITULOS LISTO');
+console.log("⬇️ Descargando video y audio...");
+await download(videoUrl, 'video.mp4');
+await download(audioUrl, 'audio.mp3');
+
+// OBTENER DURACIÓN DEL VIDEO
+console.log("⏱ Obteniendo duración...");
+const duration = parseFloat(execSync(
+    `ffprobe -v error -show_entries format=duration -of csv=p=0 video.mp4`
+).toString());
+
+console.log("Duración:", duration);
+
+// GENERAR SUBTÍTULOS AUTOMÁTICOS
+const lines = subtitleText
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+const segment = duration / lines.length;
+
+const formatTime = (sec) => {
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const s = String(Math.floor(sec % 60)).padStart(2, '0');
+    return `${h}:${m}:${s},000`;
+};
+
+let srt = '';
+
+lines.forEach((line, i) => {
+    const start = i * segment;
+    const end = (i + 1) * segment;
+
+    srt += `${i + 1}\n`;
+    srt += `${formatTime(start)} --> ${formatTime(end)}\n`;
+    srt += `${line}\n\n`;
+});
+
+fs.writeFileSync('subs.srt', srt);
+
+// PROCESAR CON FFMPEG
+console.log("⚙️ Ejecutando FFmpeg...");
+
+const cmd = `
+ffmpeg -y \
+-i video.mp4 \
+-i audio.mp3 \
+-vf "subtitles=subs.srt" \
+-map 0:v:0 \
+-map 1:a:0 \
+-c:v libx264 \
+-c:a aac \
+-shortest \
+output.mp4
+`;
+
+execSync(cmd, { stdio: 'inherit' });
+
+// GUARDAR RESULTADO
+console.log("📤 Guardando resultado...");
+const output = fs.readFileSync('output.mp4');
+
+await Actor.setValue('OUTPUT_VIDEO', output, {
+    contentType: 'video/mp4'
+});
+
+console.log("✅ PROCESO COMPLETADO");
 
 await Actor.exit();
