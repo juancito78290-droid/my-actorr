@@ -1,24 +1,38 @@
 import { Actor } from 'apify';
+import { execSync } from 'child_process';
+import fs from 'fs';
 
 await Actor.init();
 
 try {
-    console.log('🚀 Actor iniciado correctamente');
+    console.log('🚀 Iniciando FFmpeg...');
 
-    // Input (por si quieres pasar algo desde Apify)
-    const input = await Actor.getInput();
-    console.log('Input:', input);
+    // URL de video (puedes cambiarla luego)
+    const videoUrl = 'https://filesamples.com/samples/video/mp4/sample_640x360.mp4';
 
-    // Ejemplo simple: devolver datos
-    const data = {
-        message: 'Actor funcionando ✅',
-        timestamp: new Date().toISOString(),
-    };
+    const inputPath = '/tmp/input.mp4';
+    const outputPath = '/tmp/output.mp4';
 
-    // Guardar resultado
-    await Actor.pushData(data);
+    // Descargar video
+    const response = await fetch(videoUrl);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(inputPath, buffer);
 
-    console.log('✅ Datos guardados');
+    console.log('✅ Video descargado');
+
+    // Editar video (ejemplo: reducir tamaño)
+    execSync(`ffmpeg -i ${inputPath} -vf scale=320:240 ${outputPath}`);
+
+    console.log('🎬 Video procesado');
+
+    // Leer resultado
+    const resultBuffer = fs.readFileSync(outputPath);
+
+    // Guardar resultado en dataset
+    await Actor.pushData({
+        message: 'Video procesado con FFmpeg ✅',
+        size: resultBuffer.length
+    });
 
 } catch (error) {
     console.error('❌ Error:', error);
