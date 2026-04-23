@@ -11,19 +11,14 @@ const videoUrl = input.video_url;
 const audioUrl = input.audio_url;
 const subtitles = input.subtitles;
 
-// Validación
 if (!videoUrl || !audioUrl || !Array.isArray(subtitles) || subtitles.length === 0) {
-    throw new Error('Input inválido: se requiere video_url, audio_url y subtitles[]');
+    throw new Error('Input inválido');
 }
 
-// ================= DESCARGAS =================
+// ================= DESCARGA =================
 async function downloadFile(url, path) {
     const res = await fetch(url);
-
-    if (!res.ok) {
-        throw new Error(`Error descargando: ${url}`);
-    }
-
+    if (!res.ok) throw new Error(`Error descargando ${url}`);
     const buffer = Buffer.from(await res.arrayBuffer());
     fs.writeFileSync(path, buffer);
 }
@@ -34,60 +29,49 @@ await downloadFile(videoUrl, 'video.mp4');
 console.log('Descargando audio...');
 await downloadFile(audioUrl, 'audio.mp3');
 
-// ================= SRT =================
+// ================= CREAR SRT =================
 function formatTime(sec) {
-    const hours = String(Math.floor(sec / 3600)).padStart(2, '0');
-    const minutes = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-    const seconds = String(Math.floor(sec % 60)).padStart(2, '0');
-    const millis = String(Math.floor((sec % 1) * 1000)).padStart(3, '0');
-
-    return `${hours}:${minutes}:${seconds},${millis}`;
+    const hrs = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const min = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const s = String(Math.floor(sec % 60)).padStart(2, '0');
+    const ms = String(Math.floor((sec % 1) * 1000)).padStart(3, '0');
+    return `${hrs}:${min}:${s},${ms}`;
 }
 
-let srtContent = '';
+let srt = '';
 
 subtitles.forEach((sub, i) => {
-    if (
-        typeof sub.start !== 'number' ||
-        typeof sub.end !== 'number' ||
-        typeof sub.text !== 'string'
-    ) return;
-
-    srtContent += `${i + 1}\n`;
-    srtContent += `${formatTime(sub.start)} --> ${formatTime(sub.end)}\n`;
-    srtContent += `${sub.text}\n\n`;
+    srt += `${i + 1}\n`;
+    srt += `${formatTime(sub.start)} --> ${formatTime(sub.end)}\n`;
+    srt += `${sub.text}\n\n`;
 });
 
-if (!srtContent) {
-    throw new Error('Subtítulos inválidos');
-}
-
-fs.writeFileSync('subtitles.srt', srtContent);
+fs.writeFileSync('subtitles.srt', srt);
 
 // ================= FFMPEG =================
 console.log('Renderizando video...');
 
-execSync(`
+// IMPORTANTE: escapado correcto
+const cmd = `
 ffmpeg -y \
 -i video.mp4 \
 -i audio.mp3 \
--vf "subtitles=subtitles.srt:force_style='FontName=DejaVu Sans,FontSize=36,PrimaryColour=&H00FFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=60'" \
+-vf "subtitles=subtitles.srt:charenc=UTF-8:force_style='FontName=DejaVu Sans,FontSize=24'" \
 -map 0:v:0 \
 -map 1:a:0 \
 -c:v libx264 \
--preset veryfast \
--crf 28 \
 -c:a aac \
 -shortest \
 output.mp4
-`, { stdio: 'inherit' });
+`;
+
+execSync(cmd, { stdio: 'inherit' });
 
 // ================= GUARDAR =================
 await Actor.setValue('output.mp4', fs.readFileSync('output.mp4'), {
     contentType: 'video/mp4',
 });
 
-// ================= LINK FINAL =================
 const storeId = process.env.APIFY_DEFAULT_KEY_VALUE_STORE_ID;
 
 const finalUrl = `https://api.apify.com/v2/key-value-stores/${storeId}/records/output.mp4`;
