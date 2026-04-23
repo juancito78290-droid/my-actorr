@@ -31,17 +31,17 @@ for (let j = 0; j < words.length; j += chunkSize) {
 parts.push(words.slice(j, j + chunkSize).join(" "));
 }
 
-// 🔥 ASS CORREGIDO (ORDEN + RESALTADO REAL)
+// 🔥 ASS CON RESALTADO NEGRO REAL (MULTILÍNEA)
 let ass = `[Script Info]
 
 ScriptType: v4.00+
 PlayResX: 480
 PlayResY: 854
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,Montserrat ExtraBold,74,&H0000FFFF,&H0000FFFF,&H00000000,&H00000000,3,0,0,2,20,20,80
+Style: Default,Montserrat ExtraBold,74,&H0000FFFF,&H0000FFFF,&H00000000,&H00000000,3,6,0,2,20,20,80
 
 [Events]
 Format: Start,End,Style,Text
@@ -60,10 +60,8 @@ parts.forEach((p, idx) => {
 const start = idx * partDuration;
 const end = start + partDuration;
 
-// una sola línea
-const line = p.replace(/\n/g, ' ');
-
-ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${line}\n`;
+// multilínea natural (sin forzar una línea)
+ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n`;
 });
 
 fs.writeFileSync(`subs_${i}.ass`, ass);
