@@ -1,141 +1,107 @@
-import axios from "axios";
-import fs from "fs";
-import { execSync } from "child_process";
-import { Actor } from "apify";
+import { Actor } from 'apify';
+import fs from 'fs';
+import axios from 'axios';
+import { execSync } from 'child_process';
 
 await Actor.init();
 
 const input = await Actor.getInput();
 
-// Validación
-if (!input?.audio_url || !input?.video_url) {
-    throw new Error("Falta audio_url o video_url");
+if (!input?.audio_url || !input?.video_url || !input?.apiKey) {
+    throw new Error("Falta audio_url, video_url o apiKey");
 }
 
-// ⚠️ Tu API key (puedes dejarla aquí o luego moverla a env)
-const API_KEY = "bb920a640fbb45e2bd1f77cb091991a0";
+const { audio_url, video_url, apiKey } = input;
 
-// --------------------
-// 1. ENVIAR A ASSEMBLY
-// --------------------
-const start = await axios.post(
-    "https://api.assemblyai.com/v2/transcript",
+// 1. TRANSCRIPCIÓN
+const transcriptRes = await axios.post(
+    'https://api.assemblyai.com/v2/transcript',
     {
-        audio_url: input.audio_url,
-        speech_models: ["universal-2"],
+        audio_url: audio_url,
         punctuate: true,
-        format_text: true
+        format_text: true,
+        speech_model: "universal-2"
     },
     {
-        headers: {
-            authorization: API_KEY,
-            "content-type": "application/json"
-        }
+        headers: { authorization: apiKey }
     }
 );
 
-const transcriptId = start.data.id;
+const transcriptId = transcriptRes.data.id;
 console.log("Transcript ID:", transcriptId);
 
-// --------------------
-// 2. ESPERAR RESULTADO
-// --------------------
-let transcriptData;
-
+// Esperar resultado
+let text = "";
 while (true) {
-    await new Promise(r => setTimeout(r, 4000));
-
-    const res = await axios.get(
+    const polling = await axios.get(
         `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-        {
-            headers: { authorization: API_KEY }
-        }
+        { headers: { authorization: apiKey } }
     );
 
-    if (res.data.status === "completed") {
-        transcriptData = res.data;
+    if (polling.data.status === "completed") {
+        text = polling.data.text;
         break;
     }
 
-    if (res.data.status === "error") {
-        throw new Error("Error en transcripción: " + res.data.error);
+    if (polling.data.status === "error") {
+        throw new Error(polling.data.error);
     }
 
-    console.log("Esperando...");
+    await new Promise(r => setTimeout(r, 3000));
 }
 
-console.log("Texto final:", transcriptData.text);
+console.log("Texto final:", text);
 
-// --------------------
-// 3. GENERAR .ASS (subtítulos normales)
-// --------------------
-const words = transcriptData.words;
+// 2. DESCARGAR VIDEO Y AUDIO
+console.log("Descargando video...");
+execSync(`curl -L "${video_url}" -o video.mp4`);
 
-let ass = `[Script Info]
+console.log("Descargando audio...");
+execSync(`curl -L "${audio_url}" -o audio_raw.mp3`);
+
+// 🔥 3. LIMPIAR AUDIO (CLAVE)
+console.log("Reparando audio...");
+execSync(`ffmpeg -y -i audio_raw.mp3 -vn -acodec aac audio.aac`);
+
+// 4. CREAR SUBTÍTULOS BONITOS (ASS)
+const duration = 20;
+
+const ass = `
+[Script Info]
 ScriptType: v4.00+
+PlayResX: 720
+PlayResY: 1280
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginV
-Style: Default,Arial,20,&H00FFFFFF,&H00000000,1,2,0,2,20
+Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
+Style: Default,Arial,28,&H00FFFFFF,&H00000000,1,2,0,2,20,20,40
 
 [Events]
-Format: Layer, Start, End, Style, Text
+Format: Start,End,Style,Text
+Dialogue: 0:00:00.00,0:00:${duration}.00,Default,${text}
 `;
-
-function formatTime(ms) {
-    const date = new Date(ms);
-    return date.toISOString().substr(11, 12);
-}
-
-// Agrupar palabras (líneas normales)
-for (let i = 0; i < words.length; i += 8) {
-    const chunk = words.slice(i, i + 8);
-
-    const start = formatTime(chunk[0].start);
-    const end = formatTime(chunk[chunk.length - 1].end);
-
-    const text = chunk.map(w => w.text).join(" ");
-
-    ass += `Dialogue: 0,${start},${end},Default,${text}\n`;
-}
 
 fs.writeFileSync("subs.ass", ass);
 
-// --------------------
-// 4. DESCARGAR VIDEO Y AUDIO
-// --------------------
-console.log("Descargando video...");
-execSync(`curl -L "${input.video_url}" -o video.mp4`);
-
-console.log("Descargando audio...");
-execSync(`curl -L "${input.audio_url}" -o audio.mp3`);
-
-// --------------------
-// 5. FFMPEG (unir + subtítulos)
-// --------------------
+// 5. PROCESAR VIDEO FINAL
 console.log("Procesando video con FFmpeg...");
 
 execSync(`
 ffmpeg -y \
 -i video.mp4 \
--i audio.mp3 \
+-i audio.aac \
 -vf "ass=subs.ass" \
--map 0:v -map 1:a \
--c:v libx264 -preset veryfast \
+-map 0:v:0 \
+-map 1:a:0 \
+-c:v libx264 \
 -c:a aac \
--shortest output.mp4
-`);
+-shortest \
+output.mp4
+`, { stdio: 'inherit' });
 
-// --------------------
-// 6. GUARDAR RESULTADOS
-// --------------------
-await Actor.setValue("video_final.mp4", fs.readFileSync("output.mp4"), {
-    contentType: "video/mp4"
-});
+// 6. SUBIR RESULTADO
+const fileUrl = await Actor.uploadFile("output.mp4", "output.mp4");
 
-await Actor.setValue("subtitulos.ass", ass);
+console.log("VIDEO FINAL:", fileUrl);
 
-await Actor.setValue("texto.txt", transcriptData.text);
-
-// --------------------
 await Actor.exit();
