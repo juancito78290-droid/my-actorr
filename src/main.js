@@ -7,64 +7,86 @@ await Actor.init();
 const input = await Actor.getInput();
 const items = input.items || [];
 
+function downloadFile(url, path) {
+    const res = execSync(`curl -L "${url}" -o ${path}`);
+}
+
+function formatTime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = (seconds % 60).toFixed(2);
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(5, '0')}`;
+}
+
+function splitText(text) {
+    // divide en frases naturales
+    return text
+        .replace(/\n/g, ' ')
+        .split(/\.|,|\n/)
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+}
+
 for (let i = 0; i < items.length; i++) {
     const { videoUrl, audioUrl, text } = items[i];
 
     console.log(`🎬 Procesando item ${i}`);
 
-    // Descargar video
-    const videoRes = await fetch(videoUrl);
-    const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
-    fs.writeFileSync(`video_${i}.mp4`, videoBuffer);
+    // Descargar archivos
+    downloadFile(videoUrl, `video_${i}.mp4`);
+    downloadFile(audioUrl, `audio_${i}.mp3`);
 
-    // Descargar audio
-    const audioRes = await fetch(audioUrl);
-    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
-    fs.writeFileSync(`audio_${i}.mp3`, audioBuffer);
-
-    // Corregir audio
+    // Normalizar audio
     execSync(`ffmpeg -y -i audio_${i}.mp3 -ar 44100 -ac 2 audio_fixed_${i}.mp3`);
 
-    // Subtítulos estilo BLOQUE resaltado (como TikTok)
-    const assContent = `
-[Script Info]
+    // Dividir texto
+    const parts = splitText(text);
+
+    const totalDuration = 15; // SIEMPRE 15 segundos
+    const partDuration = totalDuration / parts.length;
+
+    // Crear ASS
+    let ass = `[Script Info]
 ScriptType: v4.00+
-PlayResX: 480
-PlayResY: 854
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, BackColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
-Style: Default,Arial,44,&H00FFFFFF,&H00000000,1,3,0,2,40,40,120
-Style: Highlight,Arial,44,&H00000000,&H00000000,3,0,0,2,40,40,120
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Default,Arial,48,&H00FFFFFF,&H00000000,1,3,0,2,20,20,60
 
 [Events]
 Format: Layer, Start, End, Style, Text
-
-Dialogue: 0,0:00:00.00,0:00:15.00,Highlight,{\\bord0\\shad0\\1c&H000000&\\3c&H00FFFF&\\p1}m 0 0 l 480 0 480 120 0 120{\\p0}
-Dialogue: 0,0:00:00.00,0:00:15.00,Default,${text.toUpperCase()}
 `;
 
-    fs.writeFileSync(`subs_${i}.ass`, assContent);
+    parts.forEach((line, index) => {
+        const start = formatTime(index * partDuration);
+        const end = formatTime((index + 1) * partDuration);
 
-    // Unir todo (video + audio + subtítulos)
-    execSync(`ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=480:854,ass=subs_${i}.ass" -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf 32 -c:a aac -b:a 64k -shortest output_${i}.mp4`);
+        ass += `Dialogue: 0,${start},${end},Default,${line}\n`;
+    });
 
-    // Subir a Apify
-    const buffer = fs.readFileSync(`output_${i}.mp4`);
-    const store = await Actor.openKeyValueStore();
-    const fileName = `output_${i}.mp4`;
+    fs.writeFileSync(`subs_${i}.ass`, ass);
 
-    await store.setValue(fileName, buffer, {
+    // Crear video final
+    execSync(`
+ffmpeg -y \
+-i video_${i}.mp4 \
+-i audio_fixed_${i}.mp3 \
+-vf "scale=480:854,ass=subs_${i}.ass" \
+-map 0:v -map 1:a \
+-c:v libx264 -preset ultrafast -crf 28 \
+-c:a aac -b:a 96k \
+-shortest \
+output_${i}.mp4
+`);
+
+    // Guardar en Apify storage
+    const fileBuffer = fs.readFileSync(`output_${i}.mp4`);
+
+    const { url } = await Actor.setValue(`output_${i}.mp4`, fileBuffer, {
         contentType: 'video/mp4',
     });
 
-    const url = `https://api.apify.com/v2/key-value-stores/${store.id}/records/${fileName}`;
-
-    console.log("✅ VIDEO LISTO:", url);
-
-    await Actor.pushData({
-        videoUrl: url
-    });
+    console.log(`✅ VIDEO LISTO: ${url}`);
 }
 
 await Actor.exit();
