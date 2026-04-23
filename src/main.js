@@ -1,92 +1,98 @@
 import { Actor } from 'apify';
-import { execSync } from 'child_process';
 import fs from 'fs';
+import { spawnSync } from 'child_process';
+import https from 'https';
+import http from 'http';
 
 await Actor.init();
 
 const input = await Actor.getInput();
 const items = input.items || [];
 
-for (let i = 0; i < items.length; i++) {
-    const { videoUrl, audioUrl, text } = items[i];
+// 📥 Descargar archivos
+const downloadFile = (url, path) =>
+    new Promise((resolve, reject) => {
+        const client = url.startsWith('https') ? https : http;
+        const file = fs.createWriteStream(path);
 
-    console.log(`🎬 Procesando item ${i}`);
+        client.get(url, (res) => {
+            res.pipe(file);
+            file.on('finish', () => {
+                file.close(resolve);
+            });
+        }).on('error', reject);
+    });
 
-    if (!videoUrl || !audioUrl || !text) {
-        throw new Error("Faltan datos");
-    }
+// 🎬 Crear subtítulos estilo bloque (TODO resaltado)
+const createASS = (text, duration, file) => {
+    const safeText = text
+        .toUpperCase()
+        .replace(/\n/g, '\\N');
 
-    // Descargar
-    execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`);
-    execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`);
-
-    // Arreglar audio
-    execSync(`ffmpeg -y -i audio_${i}.mp3 -vn -ar 44100 -ac 2 -b:a 96k audio_fixed_${i}.mp3`);
-
-    // 🔥 Dividir texto en bloques (NO palabra por palabra)
-    const bloques = text
-        .split('.')
-        .map(t => t.trim())
-        .filter(t => t.length > 0);
-
-    let ass = `[Script Info]
+    const ass = `[Script Info]
 ScriptType: v4.00+
+PlayResX: 480
+PlayResY: 854
 
 [V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,BackColour,Bold,Italic,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,Arial,42,&H00000000,&H0000FFFF,1,0,3,0,0,2,30,30,80,1
+Format: Name,Fontname,Fontsize,PrimaryColour,BackColour,OutlineColour,Bold,Alignment,MarginL,MarginR,MarginV,Outline,Shadow
+Style: Default,Arial,40,&H00FFFFFF,&H00000000,&H00000000,1,2,20,20,60,3,0
 
 [Events]
 Format: Layer,Start,End,Style,Text
+Dialogue: 0,0:00:00.00,0:00:${duration.toFixed(2)},Default,{\\bord6\\shad0\\c&H00FFFFFF&\\3c&H000000&\\fs44}${safeText}
 `;
 
-    let tiempo = 0;
-    const duracion = 3; // segundos por bloque
+    fs.writeFileSync(file, ass);
+};
 
-    const formatTime = (t) => {
-        const h = Math.floor(t / 3600);
-        const m = Math.floor((t % 3600) / 60);
-        const s = (t % 60).toFixed(2);
-        return `${h}:${m.toString().padStart(2, '0')}:${s.padStart(5, '0')}`;
-    };
+for (let i = 0; i < items.length; i++) {
+    console.log(`🎬 Procesando item ${i}`);
 
-    for (let j = 0; j < bloques.length; j++) {
-        const start = tiempo;
-        const end = tiempo + duracion;
+    const videoPath = `video_${i}.mp4`;
+    const audioPath = `audio_${i}.mp3`;
+    const audioFixed = `audio_fixed_${i}.mp3`;
+    const subsPath = `subs_${i}.ass`;
+    const output = `output_${i}.mp4`;
 
-        ass += `Dialogue: 0,${formatTime(start)},${formatTime(end)},Default,${bloques[j]}\n`;
+    await downloadFile(items[i].videoUrl, videoPath);
+    await downloadFile(items[i].audioUrl, audioPath);
 
-        tiempo += duracion;
-    }
+    // 🎧 Normalizar audio
+    spawnSync('ffmpeg', [
+        '-y',
+        '-i', audioPath,
+        '-vn',
+        '-ar', '44100',
+        '-ac', '2',
+        '-b:a', '96k',
+        audioFixed
+    ], { stdio: 'inherit' });
 
-    fs.writeFileSync(`subs_${i}.ass`, ass);
+    // ⏱ Duración audio
+    const duration = 14; // puedes mejorar con ffprobe si quieres
 
-    // 🎬 Render final (480p barato)
-    execSync(`
-        ffmpeg -y
-        -i video_${i}.mp4
-        -i audio_fixed_${i}.mp3
-        -vf "scale=480:854,ass=subs_${i}.ass"
-        -map 0:v -map 1:a
-        -c:v libx264 -preset ultrafast -crf 32
-        -c:a aac -b:a 64k
-        -shortest
-        output_${i}.mp4
-    `);
+    // 📝 Crear subtítulos tipo bloque (TODO resaltado)
+    createASS(items[i].text, duration, subsPath);
 
-    // Guardar en Apify (LINK)
-    const buffer = fs.readFileSync(`output_${i}.mp4`);
+    // 🎬 Combinar video + audio + subtítulos
+    spawnSync('ffmpeg', [
+        '-y',
+        '-i', videoPath,
+        '-i', audioFixed,
+        '-vf', `scale=480:854,ass=${subsPath}`,
+        '-map', '0:v',
+        '-map', '1:a',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '32',
+        '-c:a', 'aac',
+        '-b:a', '64k',
+        '-shortest',
+        output
+    ], { stdio: 'inherit' });
 
-    await Actor.setValue(`video_${i}.mp4`, buffer, {
-        contentType: 'video/mp4'
-    });
-
-    await Actor.pushData({
-        index: i,
-        url: `https://api.apify.com/v2/key-value-stores/default/records/video_${i}.mp4`
-    });
-
-    console.log(`✅ Video listo`);
+    await Actor.pushData({ output });
 }
 
 await Actor.exit();
