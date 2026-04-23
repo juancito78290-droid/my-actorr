@@ -1,77 +1,102 @@
 import { Actor } from 'apify';
 import fs from 'fs';
+import axios from 'axios';
 import { execSync } from 'child_process';
 
 await Actor.init();
 
-// 📥 INPUT
 const input = await Actor.getInput();
+const { videoUrl, audioUrl, subtitles } = input;
 
-const videoUrl = input.videoUrl;
-const audioUrl = input.audioUrl;
-const subtitlesText = input.subtitles || "Hola\nEste es un video de prueba\nFunciona perfecto";
-
-// 📥 FUNCION DESCARGA
-async function download(url, path) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Error descargando: ${url}`);
-    const buffer = await res.arrayBuffer();
-    fs.writeFileSync(path, Buffer.from(buffer));
+if (!videoUrl || !audioUrl || !subtitles?.length) {
+    throw new Error('Faltan datos en el input');
 }
 
-// ⬇️ DESCARGAS
-console.log("⬇️ Descargando...");
-await download(videoUrl, 'video.mp4');
-await download(audioUrl, 'audio.mp3');
+// 📥 DESCARGAR VIDEO
+console.log('⬇️ Descargando video...');
+const videoRes = await axios({ url: videoUrl, method: 'GET', responseType: 'stream' });
+await new Promise((res, rej) => {
+    const s = fs.createWriteStream('video.mp4');
+    videoRes.data.pipe(s);
+    s.on('finish', res);
+    s.on('error', rej);
+});
 
-// ⏱ DURACIÓN VIDEO
-console.log("⏱ Analizando video...");
-const duration = execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 video.mp4`)
-    .toString()
-    .trim();
+// 📥 DESCARGAR AUDIO
+console.log('🎵 Descargando audio...');
+const audioRes = await axios({ url: audioUrl, method: 'GET', responseType: 'stream' });
+await new Promise((res, rej) => {
+    const s = fs.createWriteStream('audio.mp3');
+    audioRes.data.pipe(s);
+    s.on('finish', res);
+    s.on('error', rej);
+});
 
-console.log("Duración:", duration);
+// 🔄 NORMALIZAR VIDEO (evita errores raros)
+console.log('🔄 Normalizando video...');
+execSync(`ffmpeg -y -i video.mp4 -vf scale=480:854 -c:v libx264 -preset veryfast -crf 28 -an video_clean.mp4`);
 
-// ✂️ CORTAR AUDIO
-console.log("✂️ Cortando audio...");
-execSync(`ffmpeg -y -i audio.mp3 -t ${duration} -c copy audio_cut.mp3`);
+// 🔄 NORMALIZAR AUDIO
+console.log('🔄 Normalizando audio...');
+execSync(`ffmpeg -y -i audio.mp3 -ar 44100 -ac 2 -b:a 128k audio_clean.mp3`);
+
+// ⏱ DURACIÓN REAL
+const duration = parseFloat(
+    execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 video_clean.mp4`)
+        .toString()
+        .trim()
+);
 
 // 📝 CREAR SRT
-console.log("📝 Creando subtítulos...");
-
-const lines = subtitlesText.split('\n');
-const partDuration = parseFloat(duration) / lines.length;
-
-function formatTime(sec) {
-    const date = new Date(sec * 1000);
-    return date.toISOString().substr(11, 12).replace('.', ',');
-}
+console.log('📝 Generando subtítulos...');
 
 let srt = '';
+const segment = duration / subtitles.length;
 
-lines.forEach((text, i) => {
-    const start = i * partDuration;
-    const end = (i + 1) * partDuration;
+const formatTime = (sec) => {
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const s = String(Math.floor(sec % 60)).padStart(2, '0');
+    return `${h}:${m}:${s},000`;
+};
 
-    srt += `${i + 1}\n`;
-    srt += `${formatTime(start)} --> ${formatTime(end)}\n`;
-    srt += `${text}\n\n`;
+subtitles.forEach((text, i) => {
+    const start = i * segment;
+    const end = (i + 1) * segment;
+
+    srt += `${i + 1}
+${formatTime(start)} --> ${formatTime(end)}
+${text}
+
+`;
 });
 
 fs.writeFileSync('subs.srt', srt);
 
+// ✂️ AJUSTAR AUDIO AL VIDEO
+execSync(`ffmpeg -y -i audio_clean.mp3 -t ${duration} -c copy audio_final.mp3`);
+
 // 🎬 RENDER FINAL
-console.log("⚙️ Renderizando...");
+console.log('⚙️ Render final...');
 
-execSync(`ffmpeg -y -i video.mp4 -i audio_cut.mp3 -vf "scale=480:-2,subtitles=subs.srt:force_style='FontName=DejaVuSans,FontSize=24,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=2'" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset ultrafast -crf 30 -c:a aac -b:a 128k -shortest output.mp4`, { stdio: 'inherit' });
+execSync(`
+ffmpeg -y -i video_clean.mp4 -i audio_final.mp3 \
+-vf "subtitles=subs.srt:force_style='FontName=Arial,FontSize=30,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=2,Shadow=1'" \
+-map 0:v -map 1:a \
+-c:v libx264 -preset veryfast -crf 27 \
+-c:a aac -b:a 128k \
+-shortest output.mp4
+`);
 
-// 📤 SUBIR VIDEO (ESTO GENERA LINK)
-console.log("📤 Subiendo video...");
+// 📤 SUBIR OUTPUT
+console.log('📤 Subiendo...');
 
-await Actor.setValue('output.mp4', fs.readFileSync('output.mp4'), {
-    contentType: 'video/mp4',
+const buffer = fs.readFileSync('output.mp4');
+
+await Actor.setValue('OUTPUT', buffer, {
+    contentType: 'video/mp4'
 });
 
-console.log("✅ LISTO: revisa Key-Value Store → output.mp4");
+console.log('✅ LISTO → OUTPUT (link disponible)');
 
 await Actor.exit();
