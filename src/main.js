@@ -29,6 +29,7 @@ function download(url, path) {
                 reject(new Error(`Error descarga: ${res.statusCode}`));
                 return;
             }
+
             res.pipe(file);
             file.on('finish', () => file.close(resolve));
         }).on('error', reject);
@@ -37,6 +38,7 @@ function download(url, path) {
 
 // -------- TRANSCRIPCIÓN --------
 async function transcribeAssembly() {
+
     console.log('Subiendo audio...');
 
     const upload = await axios({
@@ -55,9 +57,12 @@ async function transcribeAssembly() {
         {
             audio_url,
             punctuate: true,
-            format_text: true
+            format_text: true,
+            speech_model: "universal-2" // 🔥 CORRECCIÓN CLAVE
         },
-        { headers: { authorization: apiKey } }
+        {
+            headers: { authorization: apiKey }
+        }
     );
 
     const id = transcript.data.id;
@@ -95,6 +100,7 @@ function secondsToASS(sec) {
 
 // -------- SUBTÍTULOS --------
 function createASS(words) {
+
     let content = `[Script Info]
 ScriptType: v4.00+
 
@@ -121,7 +127,7 @@ Format: Start, End, Style, Text
             const clean = wordObj.text.replace(/[,{}]/g, '');
 
             if (startIndex + index === i) {
-                return `{\\c&H00FFFF&}${clean}`;
+                return `{\\c&H00FFFF&}${clean}`; // palabra activa
             } else {
                 return `{\\c&HFFFFFF&}${clean}`;
             }
@@ -136,6 +142,7 @@ Format: Start, End, Style, Text
 // -------- MAIN --------
 (async () => {
     try {
+
         console.log('Descargando video...');
         await download(videoUrl, 'video.mp4');
 
@@ -149,7 +156,13 @@ Format: Start, End, Style, Text
 
         console.log('Renderizando video...');
 
-        const command = `ffmpeg -y -stream_loop -1 -i video.mp4 -i audio.mp3 -vf "ass=subs.ass" -map 0:v -map 1:a -c:v libx264 -c:a aac -shortest output.mp4`;
+        const command = `ffmpeg -y \
+-stream_loop -1 -i video.mp4 \
+-i audio.mp3 \
+-vf "ass=subs.ass" \
+-map 0:v -map 1:a \
+-c:v libx264 -c:a aac \
+-shortest output.mp4`;
 
         execSync(command, { stdio: 'inherit' });
 
