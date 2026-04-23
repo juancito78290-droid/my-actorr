@@ -1,98 +1,69 @@
 import { Actor } from 'apify';
 import fs from 'fs';
-import { spawnSync } from 'child_process';
-import https from 'https';
-import http from 'http';
+import { execSync } from 'child_process';
+import fetch from 'node-fetch';
 
 await Actor.init();
 
 const input = await Actor.getInput();
 const items = input.items || [];
 
-// 📥 Descargar archivos
-const downloadFile = (url, path) =>
-    new Promise((resolve, reject) => {
-        const client = url.startsWith('https') ? https : http;
-        const file = fs.createWriteStream(path);
+for (let i = 0; i < items.length; i++) {
+    const { videoUrl, audioUrl, text } = items[i];
 
-        client.get(url, (res) => {
-            res.pipe(file);
-            file.on('finish', () => {
-                file.close(resolve);
-            });
-        }).on('error', reject);
-    });
+    console.log(`🎬 Procesando item ${i}`);
 
-// 🎬 Crear subtítulos estilo bloque (TODO resaltado)
-const createASS = (text, duration, file) => {
-    const safeText = text
-        .toUpperCase()
-        .replace(/\n/g, '\\N');
+    // Descargar video
+    const videoBuffer = await fetch(videoUrl).then(res => res.buffer());
+    fs.writeFileSync(`video_${i}.mp4`, videoBuffer);
 
-    const ass = `[Script Info]
+    // Descargar audio
+    const audioBuffer = await fetch(audioUrl).then(res => res.buffer());
+    fs.writeFileSync(`audio_${i}.mp3`, audioBuffer);
+
+    // Corregir audio
+    execSync(`ffmpeg -y -i audio_${i}.mp3 -ar 44100 -ac 2 audio_fixed_${i}.mp3`);
+
+    // Crear subtítulos estilo resaltado COMPLETO (no palabra por palabra)
+    const assContent = `
+[Script Info]
 ScriptType: v4.00+
 PlayResX: 480
 PlayResY: 854
 
 [V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,BackColour,OutlineColour,Bold,Alignment,MarginL,MarginR,MarginV,Outline,Shadow
-Style: Default,Arial,40,&H00FFFFFF,&H00000000,&H00000000,1,2,20,20,60,3,0
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Default,Arial,42,&H00FFFFFF,&H00000000,1,3,0,2,40,40,120
+Style: Highlight,Arial,42,&H00000000,&H00000000,3,0,0,2,40,40,120
 
 [Events]
-Format: Layer,Start,End,Style,Text
-Dialogue: 0,0:00:00.00,0:00:${duration.toFixed(2)},Default,{\\bord6\\shad0\\c&H00FFFFFF&\\3c&H000000&\\fs44}${safeText}
+Format: Layer, Start, End, Style, Text
+Dialogue: 0,0:00:00.00,0:00:14.00,Highlight,{\\bord0\\shad0\\1c&H000000&\\3c&H00FFFF&\\p1}m 0 0 l 480 0 480 100 0 100{\\p0}
+Dialogue: 0,0:00:00.00,0:00:14.00,Default,${text.toUpperCase()}
 `;
 
-    fs.writeFileSync(file, ass);
-};
+    fs.writeFileSync(`subs_${i}.ass`, assContent);
 
-for (let i = 0; i < items.length; i++) {
-    console.log(`🎬 Procesando item ${i}`);
+    // COMANDO FFmpeg (ARREGLADO en una sola línea)
+    execSync(`ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=480:854,ass=subs_${i}.ass" -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf 32 -c:a aac -b:a 64k -shortest output_${i}.mp4`);
 
-    const videoPath = `video_${i}.mp4`;
-    const audioPath = `audio_${i}.mp3`;
-    const audioFixed = `audio_fixed_${i}.mp3`;
-    const subsPath = `subs_${i}.ass`;
-    const output = `output_${i}.mp4`;
+    // 🔥 SUBIR A APIFY (AQUÍ ESTÁ LA CLAVE)
+    const buffer = fs.readFileSync(`output_${i}.mp4`);
+    const store = await Actor.openKeyValueStore();
+    const fileName = `output_${i}.mp4`;
 
-    await downloadFile(items[i].videoUrl, videoPath);
-    await downloadFile(items[i].audioUrl, audioPath);
+    await store.setValue(fileName, buffer, {
+        contentType: 'video/mp4',
+    });
 
-    // 🎧 Normalizar audio
-    spawnSync('ffmpeg', [
-        '-y',
-        '-i', audioPath,
-        '-vn',
-        '-ar', '44100',
-        '-ac', '2',
-        '-b:a', '96k',
-        audioFixed
-    ], { stdio: 'inherit' });
+    const url = `https://api.apify.com/v2/key-value-stores/${store.id}/records/${fileName}`;
 
-    // ⏱ Duración audio
-    const duration = 14; // puedes mejorar con ffprobe si quieres
+    console.log("✅ VIDEO LISTO:", url);
 
-    // 📝 Crear subtítulos tipo bloque (TODO resaltado)
-    createASS(items[i].text, duration, subsPath);
-
-    // 🎬 Combinar video + audio + subtítulos
-    spawnSync('ffmpeg', [
-        '-y',
-        '-i', videoPath,
-        '-i', audioFixed,
-        '-vf', `scale=480:854,ass=${subsPath}`,
-        '-map', '0:v',
-        '-map', '1:a',
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-crf', '32',
-        '-c:a', 'aac',
-        '-b:a', '64k',
-        '-shortest',
-        output
-    ], { stdio: 'inherit' });
-
-    await Actor.pushData({ output });
+    // DEVOLVER RESULTADO
+    await Actor.pushData({
+        videoUrl: url
+    });
 }
 
 await Actor.exit();
