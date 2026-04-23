@@ -28,15 +28,15 @@ const chunkSize = Math.ceil(words.length / 5);
 const parts = [];
 
 for (let j = 0; j < words.length; j += chunkSize) {
-parts.push(words.slice(j, j + chunkSize).join(" "));
+parts.push(words.slice(j, j + chunkSize).join(" ").toUpperCase());
 }
 
-// 🔥 ASS (FUENTE + AMARILLO MÁS BRILLANTE)
+// 🔥 ASS (720p vertical)
 let ass = `[Script Info]
 
 ScriptType: v4.00+
-PlayResX: 480
-PlayResY: 854
+PlayResX: 720
+PlayResY: 1280
 WrapStyle: 0
 
 [V4+ Styles]
@@ -65,8 +65,8 @@ ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n`;
 
 fs.writeFileSync(`subs_${i}.ass`, ass);
 
-// 🎬 render final
-execSync(`ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=480:854,ass=subs_${i}.ass" -t 15 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 96k output_${i}.mp4`);
+// 🎬 render final en 720x1280 (9:16)
+execSync(`ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=720:1280,ass=subs_${i}.ass" -t 15 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 96k output_${i}.mp4`);
 
 // Guardar
 const buffer = fs.readFileSync(`output_${i}.mp4`);
