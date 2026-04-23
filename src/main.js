@@ -1,99 +1,64 @@
-import { Actor } from 'apify';
-import fs from 'fs';
 import { execSync } from 'child_process';
+import fs from 'fs';
 
-await Actor.init();
+const input = JSON.parse(await fs.promises.readFile('INPUT.json', 'utf-8'));
 
-const input = await Actor.getInput();
-const items = input.items || [];
-
-for (let i = 0; i < items.length; i++) {
-    const { videoUrl, audioUrl, text } = items[i];
+for (let i = 0; i < input.items.length; i++) {
+    const { videoUrl, audioUrl, text } = input.items[i];
 
     console.log(`🎬 Procesando item ${i}`);
 
-    const videoFile = `video_${i}.mp4`;
-    const audioFile = `audio_${i}.mp3`;
-    const audioFixed = `audio_fixed_${i}.mp3`;
-    const outputFile = `output_${i}.mp4`;
-    const subsFile = `subs_${i}.ass`;
+    // Descargar (silencioso)
+    execSync(`curl -sL "${videoUrl}" -o v.mp4`);
+    execSync(`curl -sL "${audioUrl}" -o a.mp3`);
 
-    // Descargar
-    execSync(`curl -L "${videoUrl}" -o ${videoFile}`);
-    execSync(`curl -L "${audioUrl}" -o ${audioFile}`);
+    // ---- SUBTÍTULOS ASS (bloques resaltados amarillo) ----
+    const lines = text.split('. ').filter(t => t.trim());
+    const d = 2.3;
 
-    // 🔧 Reparar audio (evita errores mp3 corrupto)
-    execSync(`ffmpeg -y -i ${audioFile} -ar 44100 -ac 2 -b:a 128k ${audioFixed}`);
-
-    // 📏 Duración del audio
-    const duration = parseFloat(
-        execSync(`ffprobe -i ${audioFixed} -show_entries format=duration -v quiet -of csv="p=0"`).toString()
-    );
-
-    // ✂️ Dividir texto en bloques naturales
-    const words = text.split(" ");
-    const chunkSize = Math.ceil(words.length / 4); // 4 bloques
-    const chunks = [];
-
-    for (let j = 0; j < words.length; j += chunkSize) {
-        chunks.push(words.slice(j, j + chunkSize).join(" "));
-    }
-
-    const timePerChunk = duration / chunks.length;
-
-    // 🎨 Crear subtítulos estilo TikTok
     let ass = `[Script Info]
 ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,Arial,36,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,1,2,30,30,80,1
+
+; TEXTO NEGRO + FONDO AMARILLO
+Style: Default,Arial,20,&H00000000,&H00000000,&H00000000,&H0000FFFF,1,0,0,0,100,100,0,0,3,0,0,2,10,10,50,1
 
 [Events]
 Format: Layer,Start,End,Style,Text
 `;
 
-    function toTime(sec) {
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        const s = (sec % 60).toFixed(2);
-        return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(5, '0')}`;
+    let t = 0;
+
+    const fmt = (x) => {
+        const h = String(Math.floor(x / 3600)).padStart(2, '0');
+        const m = String(Math.floor((x % 3600) / 60)).padStart(2, '0');
+        const s = String(Math.floor(x % 60)).padStart(2, '0');
+        const cs = String(Math.floor((x % 1) * 100)).padStart(2, '0');
+        return `${h}:${m}:${s}.${cs}`;
+    };
+
+    for (const line of lines) {
+        ass += `Dialogue: 0,${fmt(t)},${fmt(t + d)},Default,${line}\n`;
+        t += d;
     }
 
-    chunks.forEach((chunk, index) => {
-        const start = toTime(index * timePerChunk);
-        const end = toTime((index + 1) * timePerChunk);
+    fs.writeFileSync('s.ass', ass);
 
-        // ✨ Resaltado (amarillo progresivo)
-        const highlighted = `{\\c&H00FFFF&}${chunk}`;
-
-        ass += `Dialogue: 0,${start},${end},Default,${highlighted}\n`;
-    });
-
-    fs.writeFileSync(subsFile, ass);
-
-    // 🎬 FFmpeg FINAL (recorta video al audio + subtítulos abajo)
+    // ---- FFmpeg ULTRA OPTIMIZADO ----
     execSync(`
-        ffmpeg -y \
-        -i ${videoFile} \
-        -i ${audioFixed} \
-        -vf "ass=${subsFile}" \
+        ffmpeg -loglevel error -y \
+        -i v.mp4 -i a.mp3 \
+        -vf "scale=480:854,ass=s.ass" \
         -map 0:v:0 -map 1:a:0 \
-        -t ${duration} \
-        -c:v libx264 -preset veryfast -crf 30 \
-        -c:a aac -b:a 96k \
+        -c:v libx264 -preset ultrafast -crf 35 \
+        -c:a aac -b:a 48k -ac 1 \
+        -r 24 \
+        -threads 1 \
         -shortest \
-        ${outputFile}
+        o.mp4
     `);
 
-    // 💾 Guardar en Key-Value Store (SIN errores)
-    await Actor.setValue(`video_${i}.mp4`, fs.readFileSync(outputFile), {
-        contentType: 'video/mp4',
-    });
-
-    console.log(`✅ Item ${i} listo`);
+    console.log(`✅ Listo: o.mp4`);
 }
-
-await Actor.exit();
