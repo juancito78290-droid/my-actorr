@@ -1,12 +1,17 @@
 FROM apify/actor-node:18
 
-USER root
+# Instalar FFmpeg y fuentes necesarias para subtítulos
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    fonts-dejavu-core \
+    fonts-freefont-ttf \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu
-
+# Copiar archivos del proyecto
 COPY . ./
-RUN npm install
 
-USER myuser
+# Instalar dependencias
+RUN npm install --omit=dev
 
-CMD ["node", "src/main.js"]
+# Ejecutar
+CMD ["node", "main.js"]
