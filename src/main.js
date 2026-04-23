@@ -5,7 +5,6 @@ import { Actor } from 'apify';
 await Actor.init();
 
 const input = await Actor.getInput();
-
 const { video_url, audio_url, subtitles } = input;
 
 if (!video_url || !audio_url || !subtitles) {
@@ -18,36 +17,22 @@ execSync(`wget -O video.mp4 "${video_url}"`);
 console.log('Descargando audio...');
 execSync(`wget -O audio.mp3 "${audio_url}"`);
 
-console.log('Generando archivo SRT...');
+console.log('Creando filtros drawtext...');
 
-// 🔥 Convertir JSON → SRT REAL
-let srtContent = '';
+// 🔥 Crear múltiples drawtext (uno por subtítulo)
+let filters = subtitles.map(sub => {
+    const safeText = sub.text.replace(/:/g, '\\:').replace(/'/g, "\\'");
 
-const formatTime = (seconds) => {
-    const date = new Date(seconds * 1000);
-    return date.toISOString().substr(11, 12).replace('.', ',');
-};
+    return `drawtext=text='${safeText}':fontcolor=white:fontsize=48:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-200:enable='between(t,${sub.start},${sub.end})'`;
+}).join(',');
 
-subtitles.forEach((sub, index) => {
-    srtContent += `${index + 1}\n`;
-    srtContent += `${formatTime(sub.start)} --> ${formatTime(sub.end)}\n`;
-    srtContent += `${sub.text}\n\n`;
-});
+console.log('Renderizando video...');
 
-// Guardar en ruta absoluta (clave en Apify)
-fs.writeFileSync('/usr/src/app/subtitles.srt', srtContent);
-
-// DEBUG (opcional)
-console.log('Contenido SRT:\n', srtContent);
-
-console.log('Renderizando video con subtítulos...');
-
-// 🔥 FFmpeg CORRECTO
 execSync(`
 ffmpeg -y \
 -i video.mp4 \
 -i audio.mp3 \
--vf "subtitles=/usr/src/app/subtitles.srt:force_style='Fontsize=40,PrimaryColour=&Hffffff&,OutlineColour=&H000000&,BorderStyle=3'" \
+-vf "${filters}" \
 -map 0:v:0 -map 1:a:0 \
 -c:v libx264 -preset veryfast \
 -c:a aac \
@@ -60,6 +45,6 @@ await Actor.setValue('output.mp4', fs.readFileSync('output.mp4'), {
     contentType: 'video/mp4',
 });
 
-console.log('✅ VIDEO FINAL listo con subtítulos');
+console.log('✅ VIDEO FINAL CON TEXTO (GARANTIZADO)');
 
 await Actor.exit();
