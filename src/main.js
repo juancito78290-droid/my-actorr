@@ -1,106 +1,122 @@
 import { Actor } from 'apify';
 import fs from 'fs';
 import { execSync } from 'child_process';
-import axios from 'axios';
 
 await Actor.init();
 
-// 📥 INPUT
 const input = await Actor.getInput();
-const { video_url, audio_url, apiKey } = input;
 
-if (!video_url || !audio_url || !apiKey) {
-    throw new Error("Faltan datos: video_url, audio_url o apiKey");
+// Soporta 1 o múltiples items
+const items = Array.isArray(input) ? input : [input];
+
+function dividirTexto(texto, partes = 3) {
+    const palabras = texto.split(" ").filter(p => p.trim() !== "");
+    const chunkSize = Math.ceil(palabras.length / partes);
+
+    let resultado = [];
+    for (let i = 0; i < palabras.length; i += chunkSize) {
+        resultado.push(palabras.slice(i, i + chunkSize).join(" "));
+    }
+    return resultado;
 }
 
-// 📥 DESCARGAR ARCHIVOS
-console.log("Descargando video...");
-execSync(`curl -L "${video_url}" -o video.mp4`);
-
-console.log("Descargando audio...");
-execSync(`curl -L "${audio_url}" -o audio.mp3`);
-
-// 🎤 TRANSCRIPCIÓN (AssemblyAI FIX)
-console.log("Enviando audio a AssemblyAI...");
-
-const transcriptResponse = await axios.post(
-    "https://api.assemblyai.com/v2/transcript",
-    {
-        audio_url: audio_url,
-        speech_models: ["universal"] // ✅ FIX AQUÍ
-    },
-    {
-        headers: {
-            authorization: apiKey,
-            "content-type": "application/json"
-        }
-    }
-);
-
-const transcriptId = transcriptResponse.data.id;
-console.log("Transcript ID:", transcriptId);
-
-// ⏳ ESPERAR RESULTADO
-let textoFinal = "";
-
-while (true) {
-    const polling = await axios.get(
-        `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-        {
-            headers: { authorization: apiKey }
-        }
-    );
-
-    if (polling.data.status === "completed") {
-        textoFinal = polling.data.text;
-        break;
-    }
-
-    if (polling.data.status === "error") {
-        throw new Error("Error en transcripción");
-    }
-
-    await new Promise(r => setTimeout(r, 3000));
+function formatTime(t) {
+    const h = String(Math.floor(t / 3600));
+    const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+    const s = (t % 60).toFixed(2).padStart(5, '0');
+    return `${h}:${m}:${s}`;
 }
 
-console.log("Texto final:", textoFinal);
+for (let i = 0; i < items.length; i++) {
+    const { videoUrl, audioUrl, text } = items[i];
 
-// 📝 CREAR SUBTÍTULOS (ASS - pequeños abajo)
-const ass = `[Script Info]
+    if (!videoUrl || !audioUrl || !text) {
+        console.log(`❌ Item ${i} inválido`);
+        continue;
+    }
+
+    console.log(`\n🎬 Procesando item ${i}`);
+
+    const videoFile = `video_${i}.mp4`;
+    const audioFile = `audio_${i}.mp3`;
+    const outputFile = `output_${i}.mp4`;
+    const subsFile = `subs_${i}.ass`;
+
+    try {
+        // 1. Descargar archivos
+        execSync(`curl -L "${videoUrl}" -o ${videoFile}`);
+        execSync(`curl -L "${audioUrl}" -o ${audioFile}`);
+
+        // 2. Duración audio
+        const duration = parseFloat(
+            execSync(`ffprobe -i ${audioFile} -show_entries format=duration -v quiet -of csv="p=0"`).toString()
+        );
+
+        if (!duration || isNaN(duration)) {
+            console.log("❌ Error leyendo duración audio");
+            continue;
+        }
+
+        // 3. Dividir texto
+        const bloques = dividirTexto(text, 3);
+        const tiempoPorBloque = duration / bloques.length;
+
+        // 4. Crear ASS
+        let ass = `[Script Info]
 ScriptType: v4.00+
+PlayResX: 720
+PlayResY: 1280
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
-Style: Default,Arial,22,&H00FFFFFF,&H00000000,1,1,0,2,20,20,40
+Format: Name,Fontname,Fontsize,PrimaryColour,BackColour,Bold,Alignment,MarginL,MarginR,MarginV,BorderStyle,Outline,Shadow
+Style: Default,Arial,60,&H00FFFFFF,&H00000000,1,2,50,50,120,1,2,0
 
 [Events]
-Format: Start, End, Style, Text
-Dialogue: 0:00:00.00,0:00:20.00,Default,${textoFinal}
+Format: Start,End,Style,Text
 `;
 
-fs.writeFileSync("subs.ass", ass);
+        bloques.forEach((bloque, index) => {
+            const start = index * tiempoPorBloque;
+            const end = (index + 1) * tiempoPorBloque;
 
-// 🎬 FFmpeg (FIX AUDIO + SUBS)
-console.log("Procesando video...");
+            ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,{\\an2\\bord3\\shad0}${bloque}\n`;
+        });
 
-execSync(`
-ffmpeg -y \
--err_detect ignore_err \
--i video.mp4 \
--i audio.mp3 \
--vf "ass=subs.ass" \
--c:v libx264 \
--c:a aac \
--shortest \
-output.mp4
-`);
+        fs.writeFileSync(subsFile, ass);
 
-console.log("✅ Video creado");
+        // 5. FFmpeg
+        execSync(`
+        ffmpeg -y \
+        -i ${videoFile} \
+        -i ${audioFile} \
+        -t ${duration} \
+        -vf "ass=${subsFile}" \
+        -c:v libx264 -preset ultrafast -crf 28 \
+        -c:a aac -shortest \
+        ${outputFile}
+        `, { stdio: 'inherit' });
 
-// 📤 OUTPUT
-await Actor.pushData({
-    status: "success",
-    video: "output.mp4"
-});
+        // 6. Guardar output
+        const buffer = fs.readFileSync(outputFile);
+
+        const key = `OUTPUT_VIDEO_${i}`;
+
+        await Actor.setValue(key, buffer, {
+            contentType: "video/mp4"
+        });
+
+        const url = `https://api.apify.com/v2/key-value-stores/default/records/${key}`;
+
+        await Actor.pushData({
+            index: i,
+            videoUrl: url
+        });
+
+        console.log(`✅ Item ${i} listo`);
+
+    } catch (err) {
+        console.log(`❌ Error en item ${i}`, err.message);
+    }
+}
 
 await Actor.exit();
