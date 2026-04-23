@@ -1,64 +1,91 @@
-import { execSync } from 'child_process';
+import { Actor } from 'apify';
 import fs from 'fs';
+import { execSync } from 'child_process';
 
-const input = JSON.parse(await fs.promises.readFile('INPUT.json', 'utf-8'));
+await Actor.init();
 
-for (let i = 0; i < input.items.length; i++) {
-    const { videoUrl, audioUrl, text } = input.items[i];
+// ✅ INPUT CORRECTO DE APIFY
+const input = await Actor.getInput();
+const items = input.items || [];
+
+for (let i = 0; i < items.length; i++) {
+    const { videoUrl, audioUrl, text } = items[i];
 
     console.log(`🎬 Procesando item ${i}`);
 
-    // Descargar (silencioso)
-    execSync(`curl -sL "${videoUrl}" -o v.mp4`);
-    execSync(`curl -sL "${audioUrl}" -o a.mp3`);
+    const videoPath = `video_${i}.mp4`;
+    const audioPath = `audio_${i}.mp3`;
+    const audioFixed = `audio_fixed_${i}.mp3`;
+    const assPath = `subs_${i}.ass`;
+    const outputPath = `output_${i}.mp4`;
 
-    // ---- SUBTÍTULOS ASS (bloques resaltados amarillo) ----
-    const lines = text.split('. ').filter(t => t.trim());
-    const d = 2.3;
+    // 📥 Descargar video y audio
+    execSync(`curl -L "${videoUrl}" -o ${videoPath}`);
+    execSync(`curl -L "${audioUrl}" -o ${audioPath}`);
 
+    // 🎧 Arreglar audio
+    execSync(`ffmpeg -y -i ${audioPath} -ar 44100 -ac 2 -b:a 96k ${audioFixed}`);
+
+    // ✂️ Dividir texto en bloques cortos
+    const chunks = text.match(/.{1,40}([.!?]|$)/g) || [text];
+
+    // 🧠 Crear ASS (subtítulos tipo TikTok)
     let ass = `[Script Info]
 ScriptType: v4.00+
+PlayResX: 720
+PlayResY: 1280
 
 [V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-
-; TEXTO NEGRO + FONDO AMARILLO
-Style: Default,Arial,20,&H00000000,&H00000000,&H00000000,&H0000FFFF,1,0,0,0,100,100,0,0,3,0,0,2,10,10,50,1
+Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
+Style: Default,Arial,28,&H00000000,&H00000000,1,1,0,2,20,20,80
+Style: Highlight,Arial,32,&H00000000,&H00000000,3,0,0,2,20,20,80
 
 [Events]
-Format: Layer,Start,End,Style,Text
+Format: Start,End,Style,Text
 `;
 
-    let t = 0;
+    let time = 0;
+    const durationPerChunk = 2.5;
 
-    const fmt = (x) => {
-        const h = String(Math.floor(x / 3600)).padStart(2, '0');
-        const m = String(Math.floor((x % 3600) / 60)).padStart(2, '0');
-        const s = String(Math.floor(x % 60)).padStart(2, '0');
-        const cs = String(Math.floor((x % 1) * 100)).padStart(2, '0');
-        return `${h}:${m}:${s}.${cs}`;
-    };
+    for (let j = 0; j < chunks.length; j++) {
+        const start = formatTime(time);
+        const end = formatTime(time + durationPerChunk);
 
-    for (const line of lines) {
-        ass += `Dialogue: 0,${fmt(t)},${fmt(t + d)},Default,${line}\n`;
-        t += d;
+        const cleanText = chunks[j].trim().toUpperCase();
+
+        ass += `Dialogue: ${start},${end},Highlight,{\\bord0\\shad0\\1c&H000000&\\3c&H00FFFF&\\fs32\\pos(360,1100)}${cleanText}\n`;
+
+        time += durationPerChunk;
     }
 
-    fs.writeFileSync('s.ass', ass);
+    fs.writeFileSync(assPath, ass);
 
-    // ---- FFmpeg ULTRA OPTIMIZADO ----
+    // 🎬 FFmpeg ULTRA OPTIMIZADO (480p + barato)
     execSync(`
-        ffmpeg -loglevel error -y \
-        -i v.mp4 -i a.mp3 \
-        -vf "scale=480:854,ass=s.ass" \
+        ffmpeg -y \
+        -i ${videoPath} \
+        -i ${audioFixed} \
+        -vf "scale=480:854,ass=${assPath}" \
         -map 0:v:0 -map 1:a:0 \
-        -c:v libx264 -preset ultrafast -crf 35 \
-        -c:a aac -b:a 48k -ac 1 \
-        -r 24 \
-        -threads 1 \
+        -c:v libx264 -preset ultrafast -crf 32 \
+        -c:a aac -b:a 64k \
         -shortest \
-        o.mp4
+        ${outputPath}
     `);
 
-    console.log(`✅ Listo: o.mp4`);
+    console.log(`✅ Video listo: ${outputPath}`);
+
+    // 📤 Guardar en dataset
+    await Actor.pushData({
+        video: outputPath
+    });
+}
+
+await Actor.exit();
+
+function formatTime(seconds) {
+    const h = String(Math.floor(seconds / 3600)).padStart(1, '0');
+    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+    const s = (seconds % 60).toFixed(2).padStart(5, '0');
+    return `${h}:${m}:${s}`;
 }
