@@ -31,7 +31,7 @@ for (let j = 0; j < words.length; j += chunkSize) {
     parts.push(words.slice(j, j + chunkSize).join(" "));  
 }  
 
-// 🔥 ASS SIN BORDE NI FONDO  
+// 🔥 ASS SIN BORDE NI FONDO (AMARILLO + MÁS GRUESO + MÁS ARRIBA)
 let ass = `[Script Info]
 
 ScriptType: v4.00+
@@ -40,7 +40,7 @@ PlayResY: 854
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans,56,&H0000FFFF,&H00000000,&H00000000,1,0,0,2,20,20,80
+Style: Default,Arial Bold,48,&H0000FFFF,&H00000000,&H00000000,1,0,0,2,20,20,120
 
 [Events]
 Format: Start,End,Style,Text
@@ -65,18 +65,8 @@ parts.forEach((p, idx) => {
 
 fs.writeFileSync(`subs_${i}.ass`, ass);  
 
-// 🎬 render final  
-execSync(`  
-    ffmpeg -y \  
-    -i video_${i}.mp4 \  
-    -i audio_fixed_${i}.mp3 \  
-    -vf "scale=480:854,ass=subs_${i}.ass" \  
-    -t 15 \  
-    -map 0:v -map 1:a \  
-    -c:v libx264 -preset veryfast -crf 28 \  
-    -c:a aac -b:a 96k \  
-    output_${i}.mp4  
-`);  
+// 🎬 render final (ARREGLADO)
+execSync(`ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=480:854,ass=subs_${i}.ass" -t 15 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 96k output_${i}.mp4`);  
 
 // Guardar  
 const buffer = fs.readFileSync(`output_${i}.mp4`);  
