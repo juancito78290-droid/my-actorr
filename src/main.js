@@ -8,7 +8,7 @@ const input = await Actor.getInput();
 const items = input.items || [];
 
 function downloadFile(url, path) {
-    const res = execSync(`curl -L "${url}" -o ${path}`);
+    execSync(`curl -L "${url}" -o ${path}`);
 }
 
 function formatTime(seconds) {
@@ -19,7 +19,6 @@ function formatTime(seconds) {
 }
 
 function splitText(text) {
-    // divide en frases naturales
     return text
         .replace(/\n/g, ' ')
         .split(/\.|,|\n/)
@@ -42,16 +41,17 @@ for (let i = 0; i < items.length; i++) {
     // Dividir texto
     const parts = splitText(text);
 
-    const totalDuration = 15; // SIEMPRE 15 segundos
+    const totalDuration = 15;
     const partDuration = totalDuration / parts.length;
 
-    // Crear ASS
+    // Crear ASS con estilo AMARILLO centrado abajo
     let ass = `[Script Info]
 ScriptType: v4.00+
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
-Style: Default,Arial,48,&H00FFFFFF,&H00000000,1,3,0,2,20,20,60
+
+Style: Default,Arial,56,&H0000FFFF,&H00000000,1,2,0,2,30,30,40
 
 [Events]
 Format: Layer, Start, End, Style, Text
@@ -61,7 +61,7 @@ Format: Layer, Start, End, Style, Text
         const start = formatTime(index * partDuration);
         const end = formatTime((index + 1) * partDuration);
 
-        ass += `Dialogue: 0,${start},${end},Default,${line}\n`;
+        ass += `Dialogue: 0,${start},${end},Default,,0,0,0,,${line}\n`;
     });
 
     fs.writeFileSync(`subs_${i}.ass`, ass);
@@ -79,10 +79,10 @@ ffmpeg -y \
 output_${i}.mp4
 `);
 
-    // Guardar en Apify storage
-    const fileBuffer = fs.readFileSync(`output_${i}.mp4`);
+    // Subir a Apify storage
+    const buffer = fs.readFileSync(`output_${i}.mp4`);
 
-    const { url } = await Actor.setValue(`output_${i}.mp4`, fileBuffer, {
+    const { url } = await Actor.setValue(`output_${i}.mp4`, buffer, {
         contentType: 'video/mp4',
     });
 
