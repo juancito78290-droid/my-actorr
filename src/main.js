@@ -31,12 +31,13 @@ for (let j = 0; j < words.length; j += chunkSize) {
 parts.push(words.slice(j, j + chunkSize).join(" "));
 }
 
-// 🔥 ASS CON CAMBIOS
+// 🔥 ASS MODIFICADO (RESALTADO REAL + UNA LÍNEA)
 let ass = `[Script Info]
 
 ScriptType: v4.00+
 PlayResX: 480
 PlayResY: 854
+WrapStyle: 2
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,BackColour,OutlineColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
@@ -59,7 +60,10 @@ parts.forEach((p, idx) => {
 const start = idx * partDuration;
 const end = start + partDuration;
 
-ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n`;
+// forzar una sola línea
+const singleLine = p.replace(/\n/g, ' ');
+
+ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${singleLine}\n`;
 });
 
 fs.writeFileSync(`subs_${i}.ass`, ass);
