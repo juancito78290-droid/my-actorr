@@ -1,17 +1,16 @@
-FROM apify/actor-node:18
+FROM node:18-bullseye
 
-# Instalar FFmpeg y fuentes necesarias para subtítulos
+# Instalar ffmpeg y fuentes
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     fonts-dejavu-core \
     fonts-freefont-ttf \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar archivos del proyecto
-COPY . ./
+WORKDIR /app
 
-# Instalar dependencias
-RUN npm install --omit=dev
+COPY . .
 
-# Ejecutar
+RUN npm install
+
 CMD ["node", "main.js"]
