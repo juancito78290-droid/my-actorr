@@ -36,8 +36,12 @@ await downloadFile(audioUrl, 'audio.mp3');
 
 // ================= SRT =================
 function formatTime(sec) {
-    const date = new Date(sec * 1000);
-    return date.toISOString().substring(11, 23).replace('.', ',');
+    const hours = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const minutes = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const seconds = String(Math.floor(sec % 60)).padStart(2, '0');
+    const millis = String(Math.floor((sec % 1) * 1000)).padStart(3, '0');
+
+    return `${hours}:${minutes}:${seconds},${millis}`;
 }
 
 let srtContent = '';
@@ -67,7 +71,7 @@ execSync(`
 ffmpeg -y \
 -i video.mp4 \
 -i audio.mp3 \
--vf "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=28,PrimaryColour=&Hffffff&,OutlineColour=&H000000&,BorderStyle=1,Outline=2,Shadow=1'" \
+-vf "subtitles=subtitles.srt:force_style='FontName=DejaVu Sans,FontSize=36,PrimaryColour=&H00FFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=60'" \
 -map 0:v:0 \
 -map 1:a:0 \
 -c:v libx264 \
