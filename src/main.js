@@ -31,7 +31,7 @@ for (let j = 0; j < words.length; j += chunkSize) {
 parts.push(words.slice(j, j + chunkSize).join(" "));
 }
 
-// 🔥 ASS (TEXTO MÁS PEQUEÑO + CAJA MÁS PEQUEÑA)
+// 🔥 ASS (FUENTE + AMARILLO MÁS BRILLANTE)
 let ass = `[Script Info]
 
 ScriptType: v4.00+
@@ -41,7 +41,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,Montserrat ExtraBold,56,&H0000FFFF,&H0000FFFF,&H00000000,&H00000000,3,3,0,2,20,20,70
+Style: Default,DejaVu Sans Bold,56,&H0000EEFF,&H0000EEFF,&H00000000,&H00000000,3,3,0,2,20,20,70
 
 [Events]
 Format: Start,End,Style,Text
