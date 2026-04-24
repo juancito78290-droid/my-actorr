@@ -11,42 +11,28 @@ const store = await Actor.openKeyValueStore();
 const storeId = store.id;
 
 for (let i = 0; i < items.length; i++) {
-    const { videoUrl, audioUrl, text } = items[i];
+const { videoUrl, audioUrl, text } = items[i];
 
-    console.log(`🎬 Procesando item ${i}`);
+console.log(🎬 Procesando item ${i});
 
-    // 🎥 DESCARGA VIDEO (MP4 o M3U8)
-    if (videoUrl.includes(".m3u8")) {
-        execSync(`ffmpeg -y \
-        -protocol_whitelist "file,http,https,tcp,tls,crypto" \
-        -allowed_extensions ALL \
-        -i "${videoUrl}" \
-        -map 0:v:0 \
-        -c:v libx264 \
-        -preset ultrafast \
-        -an \
-        video_${i}.mp4`);
-    } else {
-        execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`);
-    }
+// Descargar archivos
+execSync(curl -L "${videoUrl}" -o video_${i}.mp4);
+execSync(curl -L "${audioUrl}" -o audio_${i}.mp3);
 
-    // 🎵 DESCARGAR AUDIO
-    execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`);
+// Normalizar audio (más liviano)
+execSync(ffmpeg -y -i audio_${i}.mp3 -ar 44100 -ac 2 -b:a 96k audio_fixed_${i}.mp3);
 
-    // 🔊 NORMALIZAR AUDIO
-    execSync(`ffmpeg -y -i audio_${i}.mp3 -ar 44100 -ac 2 -b:a 96k audio_fixed_${i}.mp3`);
+// 🔥 TEXTO EN MAYÚSCULAS
+const words = text.toUpperCase().split(" ");
+const chunkSize = Math.ceil(words.length / 5);
+const parts = [];
 
-    // 🔥 TEXTO EN MAYÚSCULAS
-    const words = text.toUpperCase().split(" ");
-    const chunkSize = Math.ceil(words.length / 5);
-    const parts = [];
+for (let j = 0; j < words.length; j += chunkSize) {
+parts.push(words.slice(j, j + chunkSize).join(" "));
+}
 
-    for (let j = 0; j < words.length; j += chunkSize) {
-        parts.push(words.slice(j, j + chunkSize).join(" "));
-    }
-
-    // 🔥 ASS
-    let ass = `[Script Info]
+// 🔥 ASS
+let ass = `[Script Info]
 
 ScriptType: v4.00+
 PlayResX: 720
@@ -61,54 +47,43 @@ Style: Default,DejaVu Sans Bold,46,&H0000EEFF,&H0000EEFF,&H00000000,&H80000000,3
 Format: Start,End,Style,Text
 `;
 
-    const partDuration = 3;
+const partDuration = 3;
 
-    function formatTime(sec) {
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        const s = (sec % 60).toFixed(2);
-        return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(5,'0')}`;
-    }
+function formatTime(sec) {
+const h = Math.floor(sec / 3600);
+const m = Math.floor((sec % 3600) / 60);
+const s = (sec % 60).toFixed(2);
+return ${h}:${String(m).padStart(2,'0')}:${String(s).padStart(5,'0')};
+}
 
-    parts.forEach((p, idx) => {
-        const start = idx * partDuration;
-        const end = start + partDuration;
-        ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n`;
-    });
+parts.forEach((p, idx) => {
+const start = idx * partDuration;
+const end = start + partDuration;
 
-    fs.writeFileSync(`subs_${i}.ass`, ass);
+ass += Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n;
+});
 
-    // 🎬 RENDER FINAL (usa TU audio)
-    execSync(`ffmpeg -y \
-    -i video_${i}.mp4 \
-    -i audio_fixed_${i}.mp3 \
-    -vf "scale=720:1280,ass=subs_${i}.ass" \
-    -t 15 \
-    -map 0:v:0 \
-    -map 1:a:0 \
-    -c:v libx264 \
-    -preset ultrafast \
-    -crf 32 \
-    -threads 1 \
-    -c:a aac \
-    -b:a 96k \
-    output_${i}.mp4`);
+fs.writeFileSync(subs_${i}.ass, ass);
 
-    // 💾 GUARDAR
-    const buffer = fs.readFileSync(`output_${i}.mp4`);
-    const key = `output_${i}.mp4`;
+// 🎬 RENDER
+execSync(ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=720:1280,ass=subs_${i}.ass" -t 15 -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf 32 -threads 1 -c:a aac -b:a 96k output_${i}.mp4);
 
-    await Actor.setValue(key, buffer, {
-        contentType: 'video/mp4'
-    });
+// Guardar
+const buffer = fs.readFileSync(output_${i}.mp4);
+const key = output_${i}.mp4;
 
-    const url = `https://api.apify.com/v2/key-value-stores/${storeId}/records/${key}`;
+await Actor.setValue(key, buffer, {
+contentType: 'video/mp4'
+});
 
-    console.log("✅ VIDEO LISTO:", url);
+const url = https://api.apify.com/v2/key-value-stores/${storeId}/records/${key};
 
-    await Actor.pushData({
-        videoUrl: url
-    });
+console.log("✅ VIDEO LISTO:", url);
+
+await Actor.pushData({
+videoUrl: url
+});
+
 }
 
 await Actor.exit();
