@@ -15,13 +15,14 @@ const { videoUrl, audioUrl, text } = items[i];
 
 console.log(`🎬 Procesando item ${i}`);
 
-// Descargar archivos (🔥 soporte m3u8)
-if (videoUrl.includes(".m3u8")) {
-    execSync(`ffmpeg -y -protocol_whitelist "file,http,https,tcp,tls" -i "${videoUrl}" -c copy video_${i}.mp4`);
+// Descargar video (soporta mp4 y m3u8)
+if (videoUrl.includes('.m3u8')) {
+execSync(`ffmpeg -y -protocol_whitelist "file,http,https,tcp,tls,crypto" -allowed_extensions ALL -i "${videoUrl}" -c:v libx264 -c:a aac -preset ultrafast video_${i}.mp4`);
 } else {
-    execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`);
+execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`);
 }
 
+// Descargar audio
 execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`);
 
 // Normalizar audio (más liviano)
