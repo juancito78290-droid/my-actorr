@@ -41,7 +41,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans Bold,46,&H0000EEFF,&H0000EEFF,&H00000000,&H80000000,3,2,0,2,20,20,90
+Style: Default,DejaVu Sans Bold,46,&H0000EEFF,&H0000EEFF,&H00000000,&H80000000,3,3,0,2,20,20,90
 
 [Events]
 Format: Start,End,Style,Text
@@ -60,13 +60,12 @@ parts.forEach((p, idx) => {
 const start = idx * partDuration;
 const end = start + partDuration;
 
-// 🔥 Fondo negro por línea (ASS)
-ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,{\\bord0\\shad0\\3c&H000000&\\4c&H80000000&\\p1}m 0 0 l 720 0 l 720 200 l 0 200{\\p0}\\N${p}\n`;
+ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n`;
 });
 
 fs.writeFileSync(`subs_${i}.ass`, ass);
 
-// 🎬 RENDER (CONFIGURACIÓN ANTI-CRASH REAL)
+// 🎬 RENDER
 execSync(`ffmpeg -y -i video_${i}.mp4 -i audio_fixed_${i}.mp3 -vf "scale=720:1280,ass=subs_${i}.ass" -t 15 -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf 32 -threads 1 -c:a aac -b:a 96k output_${i}.mp4`);
 
 // Guardar
