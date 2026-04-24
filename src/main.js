@@ -41,7 +41,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans Bold,46,&H0000EEFF,&H0000EEFF,&H00000000,&H80000000,3,3,0,2,20,20,115
+Style: Default,DejaVu Sans Bold,46,&H0000EEFF,&H0000EEFF,&H00000000,&H80000000,3,3,0,2,20,20,140
 
 [Events]
 Format: Start,End,Style,Text
