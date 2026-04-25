@@ -18,18 +18,18 @@ for (let i = 0; i < items.length; i++) {
     // =========================
     // DESCARGAS
     // =========================
-    execSync(`curl -L "${imageUrl}" -o image_${i}.jpg`, { stdio: 'inherit' });
-    execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`, { stdio: 'inherit' });
-    execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`, { stdio: 'inherit' });
+    execSync(`curl -L "${imageUrl}" -o image_${i}.jpg`);
+    execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`);
+    execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`);
 
     // =========================
-    // AUDIO 1.3x
+    // AUDIO 1.3x (TIPO YOUTUBE)
     // =========================
     execSync(`
-        ffmpeg -y -i audio_${i}.mp3 \
-        -filter:a "atempo=1.3" \
+        ffmpeg -y -i audio_${i}.mp3 
+        -filter:a "atempo=1.3" 
         audio_fast_${i}.mp3
-    `, { stdio: 'inherit' });
+    `);
 
     // =========================
     // DURACIÓN
@@ -43,10 +43,10 @@ for (let i = 0; i < items.length; i++) {
     console.log("Duración final:", duration);
 
     // =========================
-    // SUBTÍTULOS (DEJAVU)
+    // SUBTÍTULOS (FUENTE PRO)
     // =========================
     const words = text.toUpperCase().split(" ");
-    const chunkSize = Math.ceil(words.length / 5);
+    const chunkSize = Math.ceil(words.length / 4);
     const parts = [];
 
     for (let j = 0; j < words.length; j += chunkSize) {
@@ -59,8 +59,8 @@ PlayResX: 720
 PlayResY: 1280
 
 [V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans,60,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,200
+Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
+Style: Default,DejaVu Sans,60,&H00FFFF00,&H00000000,1,3,0,2,20,20,200
 
 [Events]
 Format: Start,End,Style,Text
@@ -84,7 +84,7 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // IMAGEN (EFECTO PRO)
+    // IMAGEN (HOOK VIRAL)
     // =========================
     execSync(`
         ffmpeg -y -loop 1 -i image_${i}.jpg \
@@ -92,24 +92,21 @@ Format: Start,End,Style,Text
         scale=720:1280:force_original_aspect_ratio=decrease,
         pad=720:1280:(ow-iw)/2:(oh-ih)/2,
 
-        zoompan=z='if(lte(on,10),1.5-(on*0.03),1)':d=125:s=720x1280,
+        zoompan=z='1.3':d=125:s=720x1280,
 
-        gblur=sigma='if(lte(on,10),20-(on*2),0)',
-
-        eq=contrast=1.2:saturation=1.3,
-        unsharp=5:5:1.0,
+        eq=contrast=1.2:saturation=1.2,
         setsar=1
         " \
-        -t 5 \
+        -t 3 \
         -c:v libx264 -preset ultrafast -crf 28 \
         -pix_fmt yuv420p \
         image_part_${i}.mp4
-    `, { stdio: 'inherit' });
+    `);
 
     // =========================
-    // VIDEO (1.5x)
+    // VIDEO 1.5x (SIN ROMPER)
     // =========================
-    const remaining = Math.max(duration - 5, 1);
+    const remaining = Math.max(duration - 3, 1);
 
     execSync(`
         ffmpeg -y -i video_${i}.mp4 \
@@ -119,14 +116,15 @@ Format: Start,End,Style,Text
         pad=720:1280:(ow-iw)/2:(oh-ih)/2,
         setsar=1
         " \
-        -t ${remaining} \
         -an \
+        -t ${remaining} \
         -c:v libx264 -preset ultrafast -crf 28 \
+        -pix_fmt yuv420p \
         video_part_${i}.mp4
-    `, { stdio: 'inherit' });
+    `);
 
     // =========================
-    // CONCAT
+    // UNIR
     // =========================
     fs.writeFileSync(`list_${i}.txt`, 
 `file 'image_part_${i}.mp4'
@@ -135,7 +133,7 @@ file 'video_part_${i}.mp4'`);
     execSync(`
         ffmpeg -y -f concat -safe 0 -i list_${i}.txt \
         -c copy combined_${i}.mp4
-    `, { stdio: 'inherit' });
+    `);
 
     // =========================
     // FINAL
@@ -149,7 +147,7 @@ file 'video_part_${i}.mp4'`);
         -pix_fmt yuv420p \
         -shortest \
         output_${i}.mp4
-    `, { stdio: 'inherit' });
+    `);
 
     // =========================
     // GUARDAR
