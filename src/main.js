@@ -71,13 +71,14 @@ parts.forEach((p, idx) => {
 fs.writeFileSync(`subs_${i}.ass`, ass);  
 
 // =========================  
-// 🎬 IMAGEN (ROTACIÓN RÁPIDA)  
+// 🎬 IMAGEN (ROTACIÓN + ZOOM IN)  
 // =========================  
 execSync(`
 ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
 scale=720:1280:force_original_aspect_ratio=decrease,
 pad=720:1280:(ow-iw)/2:(oh-ih)/2,
-rotate='if(lt(t,0.6),2*PI*(t/0.6),0)':c=black@0,
+rotate='if(lt(t,0.4),2*PI*(t/0.4),0)':c=black@0,
+zoompan=z='if(gt(on,12),1+0.002*(on-12),1)':d=125:s=720x1280,
 setsar=1
 " -t 5 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_part_${i}.mp4
 `, { stdio: 'inherit' });
