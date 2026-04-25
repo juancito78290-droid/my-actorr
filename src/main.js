@@ -7,38 +7,29 @@ await Actor.init();
 const input = await Actor.getInput();
 const items = input.items || [];
 
-// STORE
-const store = await Actor.openKeyValueStore(`run-${Date.now()}`);
+const store = await Actor.openKeyValueStore();
 const storeId = store.id;
 
 for (let i = 0; i < items.length; i++) {
-    const { imageBuffer, audioUrl, text } = items[i];
+    const { imageUrl, videoUrl, audioUrl, text } = items[i];
 
     console.log(`Procesando item ${i}`);
 
     // =========================
-    // 🖼️ IMAGEN
+    // 🖼️ IMAGEN (URL)
     // =========================
-    let buffer;
+    execSync(`curl -L "${imageUrl}" -o image_${i}.jpg`, { stdio: 'inherit' });
 
-    if (typeof imageBuffer === 'string') {
-        buffer = Buffer.from(imageBuffer, 'base64');
-    } else if (imageBuffer?.data) {
-        buffer = imageBuffer.data;
-    } else if (Buffer.isBuffer(imageBuffer)) {
-        buffer = imageBuffer;
-    } else {
-        throw new Error('Formato de imagen inválido');
-    }
-
-    fs.writeFileSync(`image_${i}.jpg`, buffer);
+    // =========================
+    // 🎥 VIDEO (URL)
+    // =========================
+    execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
     // 🔊 AUDIO
     // =========================
     execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`, { stdio: 'inherit' });
 
-    // reparar audio
     execSync(`ffmpeg -y -i audio_${i}.mp3 -vn -acodec libmp3lame audio_fixed_${i}.mp3`, { stdio: 'inherit' });
 
     // =========================
@@ -57,7 +48,7 @@ for (let i = 0; i < items.length; i++) {
     console.log("Duración:", duration);
 
     // =========================
-    // 🔤 TEXTO → ASS (AMARILLO)
+    // 🔤 TEXTO → ASS (AMARILLO SIN FONDO)
     // =========================
     const words = text.toUpperCase().split(" ");
     const chunkSize = Math.ceil(words.length / 5);
@@ -74,7 +65,7 @@ PlayResY: 1280
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,Arial,52,&H0000FFFF,&H00000000,&H80000000,3,3,0,2,20,20,220
+Style: Default,Arial,52,&H0000FFFF,&H00000000,&H00000000,1,2,0,2,20,20,220
 
 [Events]
 Format: Start,End,Style,Text
@@ -98,19 +89,50 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // 🎬 FFMPEG (VERTICAL REAL)
+    // 🎬 PARTE 1: IMAGEN (5s con zoom, 9:16)
     // =========================
-    const filter = `
-zoompan=z='min(zoom+0.0008,1.2)':d=125,
-scale=720:1280:force_original_aspect_ratio=decrease,
-pad=720:1280:(720-iw)/2:(1280-ih)/2,
-setsar=1,
-ass=subs_${i}.ass
-`.replace(/\n/g, '');
+    execSync(`
+        ffmpeg -y -loop 1 -i image_${i}.jpg \
+        -vf "zoompan=z='min(zoom+0.001,1.3)':d=125,scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280" \
+        -t 5 \
+        -c:v libx264 -preset ultrafast -crf 28 \
+        -pix_fmt yuv420p \
+        image_part_${i}.mp4
+    `, { stdio: 'inherit' });
+
+    // =========================
+    // 🎬 PARTE 2: VIDEO (RESTO DEL TIEMPO)
+    // =========================
+    const remaining = Math.max(duration - 5, 1);
 
     execSync(`
-        ffmpeg -y -loop 1 -i image_${i}.jpg -i audio_fixed_${i}.mp3 \
-        -vf "${filter}" \
+        ffmpeg -y -i video_${i}.mp4 \
+        -vf "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280" \
+        -t ${remaining} \
+        -c:v libx264 -preset ultrafast -crf 28 \
+        -pix_fmt yuv420p \
+        video_part_${i}.mp4
+    `, { stdio: 'inherit' });
+
+    // =========================
+    // 🔗 UNIR VIDEO
+    // =========================
+    fs.writeFileSync(`list_${i}.txt`, `
+file 'image_part_${i}.mp4'
+file 'video_part_${i}.mp4'
+    `);
+
+    execSync(`
+        ffmpeg -y -f concat -safe 0 -i list_${i}.txt \
+        -c copy combined_${i}.mp4
+    `, { stdio: 'inherit' });
+
+    // =========================
+    // 🎬 FINAL + AUDIO + SUBS
+    // =========================
+    execSync(`
+        ffmpeg -y -i combined_${i}.mp4 -i audio_fixed_${i}.mp3 \
+        -vf "ass=subs_${i}.ass" \
         -t ${duration} \
         -c:v libx264 -preset ultrafast -crf 28 \
         -c:a aac -b:a 128k \
