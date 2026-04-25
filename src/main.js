@@ -7,8 +7,9 @@ await Actor.init();
 const input = await Actor.getInput();
 const items = input.items || [];
 
-// STORE
-const store = await Actor.openKeyValueStore(`run-${Date.now()}`);
+// 🔥 STORE ÚNICO
+const randomId = Math.random().toString(36).substring(2, 10);
+const store = await Actor.openKeyValueStore(`run-${Date.now()}-${randomId}`);
 const storeId = store.id;
 
 for (let i = 0; i < items.length; i++) {
@@ -16,41 +17,48 @@ for (let i = 0; i < items.length; i++) {
 
     console.log(`Procesando item ${i}`);
 
-    // 🧠 NORMALIZAR BUFFER (ACEPTA TODOS LOS FORMATOS DE MAKE)
+    // =========================
+    // 🖼️ PROCESAR IMAGEN
+    // =========================
     let buffer;
 
-    if (imageBuffer?.data) {
-        buffer = imageBuffer.data; // formato Make
+    if (typeof imageBuffer === 'string') {
+        // 🔥 base64 desde Make
+        buffer = Buffer.from(imageBuffer, 'base64');
+
+    } else if (imageBuffer?.data) {
+        // 🔥 binario directo
+        buffer = imageBuffer.data;
+
     } else if (Buffer.isBuffer(imageBuffer)) {
-        buffer = imageBuffer; // buffer puro
+        buffer = imageBuffer;
+
     } else {
-        throw new Error('imageBuffer inválido');
+        throw new Error('Formato de imagen no válido');
     }
 
-    // 🧠 DETECTAR FORMATO DE IMAGEN
-    let ext = 'jpg';
+    fs.writeFileSync(`image_${i}.jpg`, buffer);
 
-    if (buffer[0] === 0x89 && buffer[1] === 0x50) ext = 'png';
-    if (buffer[0] === 0xff && buffer[1] === 0xd8) ext = 'jpg';
-    if (buffer[8] === 0x57 && buffer[9] === 0x45) ext = 'webp';
-
-    const imagePath = `image_${i}.${ext}`;
-
-    fs.writeFileSync(imagePath, buffer);
-
-    // 🔊 AUDIO
+    // =========================
+    // 🔊 DESCARGAR AUDIO
+    // =========================
     execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`);
 
+    // 🔊 AUMENTAR VOLUMEN
     execSync(`ffmpeg -y -i audio_${i}.mp3 -af "volume=3.0" audio_fixed_${i}.mp3`);
 
-    // ⏱️ DURACIÓN REAL
+    // =========================
+    // ⏱️ OBTENER DURACIÓN AUDIO
+    // =========================
     const duration = parseFloat(
-        execSync(`ffprobe -i audio_fixed_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`)
-            .toString()
-            .trim()
+        execSync(`ffprobe -i audio_fixed_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`).toString()
     );
 
-    // 🔤 TEXTO
+    console.log("Duración audio:", duration);
+
+    // =========================
+    // 🔥 TEXTO → SUBTÍTULOS
+    // =========================
     const words = text.toUpperCase().split(" ");
     const chunkSize = Math.ceil(words.length / 5);
     const parts = [];
@@ -59,7 +67,6 @@ for (let i = 0; i < items.length; i++) {
         parts.push(words.slice(j, j + chunkSize).join(" "));
     }
 
-    // 📝 ASS
     let ass = `[Script Info]
 ScriptType: v4.00+
 PlayResX: 720
@@ -68,66 +75,59 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans Bold,46,&H00FFFFFF,&H00000000,&H80000000,3,3,1,2,20,20,180
+Style: Default,DejaVu Sans Bold,46,&H00FFFFFF,&H00000000,&H80000000,3,3,0,2,20,20,180
 
 [Events]
 Format: Start,End,Style,Text
 `;
 
-    const partDuration = duration / parts.length;
-
     function formatTime(sec) {
         const h = Math.floor(sec / 3600);
         const m = Math.floor((sec % 3600) / 60);
         const s = (sec % 60).toFixed(2);
-        return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(5, '0')}`;
+        return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(5,'0')}`;
     }
+
+    const partDuration = duration / parts.length;
 
     parts.forEach((p, idx) => {
         const start = idx * partDuration;
         const end = start + partDuration;
-        ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,{\\fad(200,200)}${p}\n`;
+        ass += `Dialogue: ${formatTime(start)},${formatTime(end)},Default,${p}\n`;
     });
 
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
-    // 🎬 EFECTOS (zoom in + zoom out + shake)
-    const fps = 25;
-    const totalFrames = Math.floor(duration * fps);
-
-    const filter = `
+    // =========================
+    // 🎬 EFECTOS (ZOOM + SHAKE)
+    // =========================
+    const effects = `
+zoompan=z='min(zoom+0.0008,1.2)':d=125,
 scale=720:1280,
-zoompan=
-z='if(lte(on,${totalFrames / 2}),
-    1+0.0008*on,
-    1.4-0.0008*(on-${totalFrames / 2})
- )':
-x='iw/2-(iw/zoom/2)+sin(on/8)*2':
-y='ih/2-(ih/zoom/2)+cos(on/10)*2':
-d=${totalFrames},
-fps=${fps},
+tmix=frames=2:weights="1 1",
 ass=subs_${i}.ass
-`.replace(/\n/g, '');
+`;
 
-    // 🎬 VIDEO DESDE IMAGEN
+    // =========================
+    // 🎬 CREAR VIDEO DESDE IMAGEN
+    // =========================
     execSync(`
-        ffmpeg -y \
-        -loop 1 -i ${imagePath} \
-        -i audio_fixed_${i}.mp3 \
-        -vf "${filter}" \
+        ffmpeg -y -loop 1 -i image_${i}.jpg -i audio_fixed_${i}.mp3 \
+        -vf "${effects}" \
         -t ${duration} \
-        -map 0:v -map 1:a \
-        -c:v libx264 -preset ultrafast -crf 32 \
+        -c:v libx264 -preset ultrafast -crf 28 \
         -c:a aac -b:a 128k \
-        -shortest \
+        -pix_fmt yuv420p \
         output_${i}.mp4
     `);
 
-    // 💾 GUARDAR
-    const videoBuffer = fs.readFileSync(`output_${i}.mp4`);
+    // =========================
+    // 💾 GUARDAR EN KV STORE
+    // =========================
     const key = `output-${i}-${Date.now()}.mp4`;
+    const fileBuffer = fs.readFileSync(`output_${i}.mp4`);
 
-    await Actor.setValue(key, videoBuffer, {
+    await Actor.setValue(key, fileBuffer, {
         contentType: 'video/mp4'
     });
 
