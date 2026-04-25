@@ -7,9 +7,8 @@ await Actor.init();
 const input = await Actor.getInput();
 const items = input.items || [];
 
-// 🔥 STORE ÚNICO
-const randomId = Math.random().toString(36).substring(2, 10);
-const store = await Actor.openKeyValueStore(`run-${Date.now()}-${randomId}`);
+// STORE
+const store = await Actor.openKeyValueStore(`run-${Date.now()}`);
 const storeId = store.id;
 
 for (let i = 0; i < items.length; i++) {
@@ -18,46 +17,47 @@ for (let i = 0; i < items.length; i++) {
     console.log(`Procesando item ${i}`);
 
     // =========================
-    // 🖼️ PROCESAR IMAGEN
+    // 🖼️ IMAGEN (base64 o binario)
     // =========================
     let buffer;
 
     if (typeof imageBuffer === 'string') {
-        // 🔥 base64 desde Make
         buffer = Buffer.from(imageBuffer, 'base64');
-
     } else if (imageBuffer?.data) {
-        // 🔥 binario directo
         buffer = imageBuffer.data;
-
     } else if (Buffer.isBuffer(imageBuffer)) {
         buffer = imageBuffer;
-
     } else {
-        throw new Error('Formato de imagen no válido');
+        throw new Error('Formato de imagen inválido');
     }
 
     fs.writeFileSync(`image_${i}.jpg`, buffer);
 
     // =========================
-    // 🔊 DESCARGAR AUDIO
+    // 🔊 AUDIO
     // =========================
-    execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`);
+    execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`, { stdio: 'inherit' });
 
-    // 🔊 AUMENTAR VOLUMEN
-    execSync(`ffmpeg -y -i audio_${i}.mp3 -af "volume=3.0" audio_fixed_${i}.mp3`);
+    // reparar audio
+    execSync(`ffmpeg -y -i audio_${i}.mp3 -vn -acodec libmp3lame audio_fixed_${i}.mp3`, { stdio: 'inherit' });
 
     // =========================
-    // ⏱️ OBTENER DURACIÓN AUDIO
+    // ⏱️ DURACIÓN
     // =========================
     const duration = parseFloat(
-        execSync(`ffprobe -i audio_fixed_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`).toString()
+        execSync(`ffprobe -i audio_fixed_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`)
+            .toString()
+            .trim()
     );
 
-    console.log("Duración audio:", duration);
+    if (!duration || isNaN(duration)) {
+        throw new Error('No se pudo obtener duración del audio');
+    }
+
+    console.log("Duración:", duration);
 
     // =========================
-    // 🔥 TEXTO → SUBTÍTULOS
+    // 🔤 TEXTO → ASS
     // =========================
     const words = text.toUpperCase().split(" ");
     const chunkSize = Math.ceil(words.length / 5);
@@ -71,11 +71,10 @@ for (let i = 0; i < items.length; i++) {
 ScriptType: v4.00+
 PlayResX: 720
 PlayResY: 1280
-WrapStyle: 0
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans Bold,46,&H00FFFFFF,&H00000000,&H80000000,3,3,0,2,20,20,180
+Style: Default,Arial,46,&H00FFFFFF,&H00000000,&H80000000,3,3,0,2,20,20,200
 
 [Events]
 Format: Start,End,Style,Text
@@ -99,35 +98,28 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // 🎬 EFECTOS (ZOOM + SHAKE)
+    // 🎬 FFMPEG (CORREGIDO)
     // =========================
-    const effects = `
-zoompan=z='min(zoom+0.0008,1.2)':d=125,
-scale=720:1280,
-tmix=frames=2:weights="1 1",
-ass=subs_${i}.ass
-`;
+    const filter = `zoompan=z='min(zoom+0.0008,1.2)':d=125,scale=720:1280,ass=subs_${i}.ass`;
 
-    // =========================
-    // 🎬 CREAR VIDEO DESDE IMAGEN
-    // =========================
     execSync(`
         ffmpeg -y -loop 1 -i image_${i}.jpg -i audio_fixed_${i}.mp3 \
-        -vf "${effects}" \
+        -vf "${filter}" \
         -t ${duration} \
         -c:v libx264 -preset ultrafast -crf 28 \
         -c:a aac -b:a 128k \
         -pix_fmt yuv420p \
+        -shortest \
         output_${i}.mp4
-    `);
+    `, { stdio: 'inherit' });
 
     // =========================
-    // 💾 GUARDAR EN KV STORE
+    // 💾 GUARDAR
     // =========================
     const key = `output-${i}-${Date.now()}.mp4`;
-    const fileBuffer = fs.readFileSync(`output_${i}.mp4`);
+    const videoBuffer = fs.readFileSync(`output_${i}.mp4`);
 
-    await Actor.setValue(key, fileBuffer, {
+    await Actor.setValue(key, videoBuffer, {
         contentType: 'video/mp4'
     });
 
@@ -135,9 +127,7 @@ ass=subs_${i}.ass
 
     console.log("VIDEO LISTO:", url);
 
-    await Actor.pushData({
-        videoUrl: url
-    });
+    await Actor.pushData({ videoUrl: url });
 }
 
 await Actor.exit();
