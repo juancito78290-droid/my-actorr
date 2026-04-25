@@ -7,6 +7,7 @@ await Actor.init();
 const input = await Actor.getInput();
 const items = input.items || [];
 
+// STORE
 const store = await Actor.openKeyValueStore(`run-${Date.now()}`);
 const storeId = store.id;
 
@@ -37,6 +38,7 @@ for (let i = 0; i < items.length; i++) {
     // =========================
     execSync(`curl -L "${audioUrl}" -o audio_${i}.mp3`, { stdio: 'inherit' });
 
+    // reparar audio
     execSync(`ffmpeg -y -i audio_${i}.mp3 -vn -acodec libmp3lame audio_fixed_${i}.mp3`, { stdio: 'inherit' });
 
     // =========================
@@ -49,13 +51,13 @@ for (let i = 0; i < items.length; i++) {
     );
 
     if (!duration || isNaN(duration)) {
-        throw new Error('No se pudo obtener duración');
+        throw new Error('No se pudo obtener duración del audio');
     }
 
     console.log("Duración:", duration);
 
     // =========================
-    // 🔤 SUBTÍTULOS (AMARILLO)
+    // 🔤 TEXTO → ASS (AMARILLO)
     // =========================
     const words = text.toUpperCase().split(" ");
     const chunkSize = Math.ceil(words.length / 5);
@@ -96,13 +98,15 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // 🎬 VIDEO (FIX REAL)
+    // 🎬 FFMPEG (VERTICAL REAL)
     // =========================
     const filter = `
-        zoompan=z='min(zoom+0.0008,1.2)':d=125,
-        scale=720:1280,
-        ass=subs_${i}.ass
-    `.replace(/\s+/g, '');
+zoompan=z='min(zoom+0.0008,1.2)':d=125,
+scale=720:1280:force_original_aspect_ratio=decrease,
+pad=720:1280:(720-iw)/2:(1280-ih)/2,
+setsar=1,
+ass=subs_${i}.ass
+`.replace(/\n/g, '');
 
     execSync(`
         ffmpeg -y -loop 1 -i image_${i}.jpg -i audio_fixed_${i}.mp3 \
