@@ -28,19 +28,22 @@ for (let i = 0; i < items.length; i++) {
     execSync(`
         ffmpeg -y -i audio_${i}.mp3 \
         -filter:a "atempo=1.3" \
-        -vn audio_fast_${i}.mp3
+        audio_fast_${i}.mp3
     `, { stdio: 'inherit' });
 
-    // DURACIÓN REAL (ya acelerado)
+    // =========================
+    // DURACIÓN
+    // =========================
     const duration = parseFloat(
         execSync(`ffprobe -i audio_fast_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`)
-            .toString().trim()
+            .toString()
+            .trim()
     );
 
     console.log("Duración final:", duration);
 
     // =========================
-    // TEXTO (ASS)
+    // SUBTÍTULOS (DEJAVU)
     // =========================
     const words = text.toUpperCase().split(" ");
     const chunkSize = Math.ceil(words.length / 5);
@@ -57,7 +60,7 @@ PlayResY: 1280
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV
-Style: Default,DejaVu Sans Bold,56,&H0000FFFF,&H00000000,&H00000000,1,2,0,2,20,20,220
+Style: Default,DejaVu Sans,60,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,200
 
 [Events]
 Format: Start,End,Style,Text
@@ -81,7 +84,7 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // 🖼️ IMAGEN (EFECTO VIRAL REAL)
+    // IMAGEN (EFECTO PRO)
     // =========================
     execSync(`
         ffmpeg -y -loop 1 -i image_${i}.jpg \
@@ -89,11 +92,9 @@ Format: Start,End,Style,Text
         scale=720:1280:force_original_aspect_ratio=decrease,
         pad=720:1280:(ow-iw)/2:(oh-ih)/2,
 
-        zoompan=
-        z='if(lte(on,8),1+0.18*on, if(lte(on,30),1.4-(on-8)*0.02,1.1))':
-        d=125:s=720x1280,
+        zoompan=z='if(lte(on,10),1.5-(on*0.03),1)':d=125:s=720x1280,
 
-        boxblur='if(lte(on,8),5,0)',
+        gblur=sigma='if(lte(on,10),20-(on*2),0)',
 
         eq=contrast=1.2:saturation=1.3,
         unsharp=5:5:1.0,
@@ -106,16 +107,18 @@ Format: Start,End,Style,Text
     `, { stdio: 'inherit' });
 
     // =========================
-    // 🎥 VIDEO (1.5x velocidad)
+    // VIDEO (1.5x)
     // =========================
     const remaining = Math.max(duration - 5, 1);
 
     execSync(`
         ffmpeg -y -i video_${i}.mp4 \
-        -filter:v "setpts=PTS/1.5,
+        -vf "
+        setpts=PTS/1.5,
         scale=720:1280:force_original_aspect_ratio=decrease,
         pad=720:1280:(ow-iw)/2:(oh-ih)/2,
-        setsar=1" \
+        setsar=1
+        " \
         -t ${remaining} \
         -an \
         -c:v libx264 -preset ultrafast -crf 28 \
@@ -123,9 +126,9 @@ Format: Start,End,Style,Text
     `, { stdio: 'inherit' });
 
     // =========================
-    // UNIR
+    // CONCAT
     // =========================
-    fs.writeFileSync(`list_${i}.txt`,
+    fs.writeFileSync(`list_${i}.txt`, 
 `file 'image_part_${i}.mp4'
 file 'video_part_${i}.mp4'`);
 
@@ -143,6 +146,7 @@ file 'video_part_${i}.mp4'`);
         -t ${duration} \
         -c:v libx264 -preset ultrafast -crf 28 \
         -c:a aac -b:a 128k \
+        -pix_fmt yuv420p \
         -shortest \
         output_${i}.mp4
     `, { stdio: 'inherit' });
