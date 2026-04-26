@@ -18,15 +18,32 @@ for (let i = 0; i < items.length; i++) {
 
     console.log(`Procesando item ${i}`);
 
+    // =========================
     // DESCARGAS
+    // =========================
     execSync(`curl -L "${imageUrl}" -o image_${i}.jpg`, { stdio: 'inherit' });
     execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`, { stdio: 'inherit' });
-    execSync(`curl -L "${finalAudioUrl}" -o audio_${i}.mp3`, { stdio: 'inherit' });
 
-    // AUDIO 1.3x
-    execSync(`ffmpeg -y -i audio_${i}.mp3 -filter:a "atempo=1.2" audio_fast_${i}.mp3`, { stdio: 'inherit' });
+    // 🔊 DESCARGAR AUDIO (sin asumir formato)
+    execSync(`curl -L "${finalAudioUrl}" -o audio_${i}`, { stdio: 'inherit' });
 
+    let inputAudio = `audio_${i}`;
+    let outputMp3 = `audio_${i}.mp3`;
+
+    // 🔁 CONVERTIR A MP3 SI NO LO ES
+    if (!finalAudioUrl.toLowerCase().includes(".mp3")) {
+        console.log("Convirtiendo audio a MP3...");
+        execSync(`ffmpeg -y -i ${inputAudio} -vn -ar 44100 -ac 2 -b:a 128k ${outputMp3}`, { stdio: 'inherit' });
+    } else {
+        fs.renameSync(inputAudio, outputMp3);
+    }
+
+    // ⚡ AUDIO MÁS RÁPIDO
+    execSync(`ffmpeg -y -i ${outputMp3} -filter:a "atempo=1.2" audio_fast_${i}.mp3`, { stdio: 'inherit' });
+
+    // =========================
     // DURACIÓN
+    // =========================
     const duration = parseFloat(
         execSync(`ffprobe -i audio_fast_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`)
             .toString()
@@ -35,7 +52,9 @@ for (let i = 0; i < items.length; i++) {
 
     console.log("Duración:", duration);
 
+    // =========================
     // SUBTÍTULOS
+    // =========================
     const words = text.toUpperCase().split(" ");
     const chunkSize = Math.ceil(words.length / 5);
     const parts = [];
@@ -74,7 +93,7 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // 🎬 IMAGEN (ROTACIÓN + ZOOM)
+    // 🎬 IMAGEN
     // =========================
     execSync(`
 ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
@@ -88,7 +107,7 @@ setsar=1
 `, { stdio: 'inherit' });
 
     // =========================
-    // 🎬 VIDEO (1.5x SPEED)
+    // 🎬 VIDEO
     // =========================
     const remaining = Math.max(duration - 5, 1);
 
@@ -101,19 +120,25 @@ setsar=1
 " -t ${remaining} -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4
 `, { stdio: 'inherit' });
 
+    // =========================
     // UNIR
+    // =========================
     fs.writeFileSync(`list_${i}.txt`,
 `file 'image_part_${i}.mp4'
 file 'video_part_${i}.mp4'`);
 
     execSync(`ffmpeg -y -f concat -safe 0 -i list_${i}.txt -c copy combined_${i}.mp4`, { stdio: 'inherit' });
 
+    // =========================
     // FINAL
+    // =========================
     execSync(`
 ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass" -t ${duration} -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 128k -pix_fmt yuv420p -shortest output_${i}.mp4
 `, { stdio: 'inherit' });
 
+    // =========================
     // GUARDAR
+    // =========================
     const key = `output-${i}-${Date.now()}.mp4`;
     const buffer = fs.readFileSync(`output_${i}.mp4`);
 
