@@ -11,7 +11,8 @@ const store = await Actor.openKeyValueStore();
 const storeId = store.id;
 
 for (let i = 0; i < items.length; i++) {
-    const { imageUrl, videoUrl, audioUrl, text } = items[i];
+    const { imageUrl, videoUrl, audioUrl, text: rawText } = items[i];
+    const text = (rawText || "").replace(/[\x00-\x1F\x7F]/g, " ").trim();
 
     console.log(`\n=== ITEM ${i} ===`);
 
