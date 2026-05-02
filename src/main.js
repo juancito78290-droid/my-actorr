@@ -78,12 +78,12 @@ for (let i = 0; i < items.length; i++) {
 
     let ass = `[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: 720
+PlayResY: 1280
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Bold
-Style: Default,DejaVu Sans,58,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,240,1
+Style: Default,DejaVu Sans,48,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,240,1
 
 [Events]
 Format: Start,End,Style,Text
@@ -111,9 +111,9 @@ Format: Start,End,Style,Text
     execSync(`
 ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
 fps=60,
-scale=1080:1920:force_original_aspect_ratio=decrease,
-pad=1080:1920:(ow-iw)/2:(oh-ih)/2,
-zoompan=z='if(gt(on,12),1+0.002*(on-12),1)':d=300:s=1080x1920,
+scale=720:1280:force_original_aspect_ratio=decrease,
+pad=720:1280:(ow-iw)/2:(oh-ih)/2,
+zoompan=z='if(gt(on,12),1+0.002*(on-12),1)':d=300:s=720x1280,
 setsar=1
 " -t 5 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_part_${i}.mp4
 `, { stdio: 'inherit' });
@@ -126,8 +126,8 @@ setsar=1
     execSync(`
 ffmpeg -y -i video_${i}.mp4 -vf "
 setpts=PTS/1.5,
-scale=1080:1920:force_original_aspect_ratio=decrease,
-pad=1080:1920:(ow-iw)/2:(oh-ih)/2,
+scale=720:1280:force_original_aspect_ratio=decrease,
+pad=720:1280:(ow-iw)/2:(oh-ih)/2,
 setsar=1
 " -t ${remaining} -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4
 `, { stdio: 'inherit' });
