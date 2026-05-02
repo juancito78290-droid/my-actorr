@@ -52,7 +52,7 @@ for (let i = 0; i < items.length; i++) {
     // =========================
     // ACELERAR AUDIO
     // =========================
-    execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=1.2" audio_fast_${i}.mp3`, { stdio: 'inherit' });
+    execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=1.5" audio_fast_${i}.mp3`, { stdio: 'inherit' });
 
     // =========================
     // DURACIÓN
@@ -69,7 +69,7 @@ for (let i = 0; i < items.length; i++) {
     // SUBTÍTULOS
     // =========================
     const words = (text || "").toUpperCase().split(" ");
-    const chunkSize = Math.ceil(words.length / 5) || 1;
+    const chunkSize = 2;
     const parts = [];
 
     for (let j = 0; j < words.length; j += chunkSize) {
