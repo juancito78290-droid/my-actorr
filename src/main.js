@@ -162,4 +162,9 @@ ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps
     await Actor.pushData({ videoUrl: url });
 }
 
+// =========================
+// ELIMINAR INPUT DEL STORE
+// =========================
+await store.deleteRecord('INPUT');
+
 await Actor.exit();
