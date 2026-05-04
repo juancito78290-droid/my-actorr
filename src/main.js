@@ -106,43 +106,22 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // IMAGEN — 1s efecto VelasPerfectas + 1s estática = 2s totales
+    // IMAGEN — 1s efecto zoom in
     // =========================
-
-    // 1s con efecto zoom out blur
     execSync(`
 ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
 fps=30,
 scale=480:854:force_original_aspect_ratio=decrease,
 pad=480:854:(ow-iw)/2:(oh-ih)/2,
-zoompan=z='if(lte(zoom,1.0),1.8,max(1.001,zoom-0.025))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=30:s=480x854,
-tblend=all_mode=average:all_opacity=0.7,
-fade=t=in:st=0:d=0.3,
+zoompan=z='min(zoom+0.05,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=30:s=480x854,
 setsar=1
-" -t 1 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_efx_${i}.mp4
+" -t 1 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_part_${i}.mp4
 `, { stdio: 'inherit' });
-
-    // 1s imagen estática normal
-    execSync(`
-ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
-fps=30,
-scale=480:854:force_original_aspect_ratio=decrease,
-pad=480:854:(ow-iw)/2:(oh-ih)/2,
-setsar=1
-" -t 1 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_static_${i}.mp4
-`, { stdio: 'inherit' });
-
-    // Unir efecto + estática = 2s totales
-    fs.writeFileSync(`list_img_${i}.txt`,
-`file 'image_efx_${i}.mp4'
-file 'image_static_${i}.mp4'`);
-
-    execSync(`ffmpeg -y -f concat -safe 0 -i list_img_${i}.txt -c copy image_part_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
     // VIDEO
     // =========================
-    const remaining = Math.max(duration - 2, 1);
+    const remaining = Math.max(duration - 1, 1);
 
     execSync(`
 ffmpeg -y -i video_${i}.mp4 -vf "
@@ -172,7 +151,7 @@ ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps
     // =========================
     // GUARDAR
     // =========================
-    const key = `aaa-output-${i}.mp4`;
+    const key = `output-${Date.now()}-${i}.mp4`;
     const bufferOut = fs.readFileSync(`output_${i}.mp4`);
 
     await Actor.setValue(key, bufferOut, { contentType: 'video/mp4' });
@@ -185,7 +164,7 @@ ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps
     // =========================
     // LIMPIEZA
     // =========================
-    execSync(`rm -f image_${i}.jpg video_${i}.mp4 audio_${i}.mp3 audio_${i}.pcm audio_fast_${i}.mp3 image_efx_${i}.mp4 image_static_${i}.mp4 list_img_${i}.txt image_part_${i}.mp4 video_part_${i}.mp4 combined_${i}.mp4 subs_${i}.ass list_${i}.txt output_${i}.mp4`);
+    execSync(`rm -f image_${i}.jpg video_${i}.mp4 audio_${i}.mp3 audio_${i}.pcm audio_fast_${i}.mp3 image_part_${i}.mp4 video_part_${i}.mp4 combined_${i}.mp4 subs_${i}.ass list_${i}.txt output_${i}.mp4`);
 }
 
 await Actor.exit();
