@@ -78,12 +78,12 @@ for (let i = 0; i < items.length; i++) {
 
     let ass = `[Script Info]
 ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
+PlayResX: 480
+PlayResY: 854
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Bold
-Style: Default,DejaVu Sans,48,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,240,1
+Style: Default,DejaVu Sans,36,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,180,1
 
 [Events]
 Format: Start,End,Style,Text
@@ -113,9 +113,9 @@ Format: Start,End,Style,Text
     execSync(`
 ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
 fps=30,
-scale=720:1280:force_original_aspect_ratio=decrease,
-pad=720:1280:(ow-iw)/2:(oh-ih)/2,
-zoompan=z='if(lte(zoom,1.0),1.8,max(1.001,zoom-0.025))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=30:s=720x1280,
+scale=480:854:force_original_aspect_ratio=decrease,
+pad=480:854:(ow-iw)/2:(oh-ih)/2,
+zoompan=z='if(lte(zoom,1.0),1.8,max(1.001,zoom-0.025))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=30:s=480x854,
 tblend=all_mode=average:all_opacity=0.7,
 fade=t=in:st=0:d=0.3,
 setsar=1
@@ -126,8 +126,8 @@ setsar=1
     execSync(`
 ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
 fps=30,
-scale=720:1280:force_original_aspect_ratio=decrease,
-pad=720:1280:(ow-iw)/2:(oh-ih)/2,
+scale=480:854:force_original_aspect_ratio=decrease,
+pad=480:854:(ow-iw)/2:(oh-ih)/2,
 setsar=1
 " -t 1 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_static_${i}.mp4
 `, { stdio: 'inherit' });
@@ -147,8 +147,8 @@ file 'image_static_${i}.mp4'`);
     execSync(`
 ffmpeg -y -i video_${i}.mp4 -vf "
 setpts=PTS/1.5,
-scale=720:1280:force_original_aspect_ratio=decrease,
-pad=720:1280:(ow-iw)/2:(oh-ih)/2,
+scale=480:854:force_original_aspect_ratio=decrease,
+pad=480:854:(ow-iw)/2:(oh-ih)/2,
 setsar=1
 " -t ${remaining} -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4
 `, { stdio: 'inherit' });
@@ -166,7 +166,7 @@ file 'video_part_${i}.mp4'`);
     // FINAL
     // =========================
     execSync(`
-ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset ultrafast -crf 28 -maxrate 5M -bufsize 10M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4
+ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset ultrafast -crf 28 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4
 `, { stdio: 'inherit' });
 
     // =========================
