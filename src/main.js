@@ -10,11 +10,36 @@ const items = input.items || [];
 const store = await Actor.openKeyValueStore();
 const storeId = store.id;
 
+// Funcion para numero aleatorio entre min y max
+function rand(min, max) {
+    return (Math.random() * (max - min) + min).toFixed(3);
+}
+
 for (let i = 0; i < items.length; i++) {
     const { imageUrl, videoUrl, audioUrl, audioBase64, text: rawText } = items[i];
     const text = (rawText || "").replace(/[\x00-\x1F\x7F]/g, " ").trim();
 
     console.log(`\n=== ITEM ${i} ===`);
+
+    // =========================
+    // TRANSFORMACIONES ALEATORIAS — diferentes en cada ejecucion
+    // =========================
+    const doMirror = Math.random() > 0.5;                      // 50% chance de mirror
+    const speed = parseFloat(rand(1.3, 1.7));                  // velocidad entre 1.3x y 1.7x
+    const cropFactor = parseFloat(rand(0.92, 0.98));           // recorte entre 2% y 8%
+    const brightness = parseFloat(rand(-0.05, 0.08));          // brillo aleatorio
+    const contrast = parseFloat(rand(1.05, 1.20));             // contraste aleatorio
+    const saturation = parseFloat(rand(1.05, 1.35));           // saturacion aleatoria
+    const rotation = parseFloat(rand(-1.5, 1.5));              // rotacion leve
+    const noise = parseFloat(rand(2, 8));                      // grano de video
+    const audioTempo = speed;                                   // audio igual que video
+    const audioVolume = parseFloat(rand(0.9, 1.1));            // volumen aleatorio
+    const audioPitch = parseFloat(rand(0.95, 1.05));           // pitch aleatorio
+
+    console.log(`Mirror: ${doMirror}, Speed: ${speed}, Crop: ${cropFactor}`);
+    console.log(`Brightness: ${brightness}, Contrast: ${contrast}, Saturation: ${saturation}`);
+    console.log(`Rotation: ${rotation}, Noise: ${noise}`);
+    console.log(`Audio tempo: ${audioTempo}, Volume: ${audioVolume}, Pitch: ${audioPitch}`);
 
     // =========================
     // DESCARGAR MEDIA
@@ -23,7 +48,7 @@ for (let i = 0; i < items.length; i++) {
     execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
-    // 🔊 AUDIO DESDE BASE64 (Gemini TTS), URL MP3 o Google Drive
+    // AUDIO DESDE BASE64 (Gemini TTS), URL MP3 o Google Drive
     // =========================
     let inputAudio = `audio_${i}.mp3`;
 
@@ -34,7 +59,6 @@ for (let i = 0; i < items.length; i++) {
         execSync(`ffmpeg -y -f s16le -ar 24000 -ac 1 -i audio_${i}.pcm -codec:a libmp3lame -qscale:a 2 ${inputAudio}`, { stdio: 'inherit' });
     } else if (audioUrl) {
         let downloadUrl = audioUrl;
-
         const driveMatch = audioUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
         if (driveMatch) {
             const fileId = driveMatch[1];
@@ -43,30 +67,27 @@ for (let i = 0; i < items.length; i++) {
         } else {
             console.log("Descargando audio MP3 desde URL...");
         }
-
         execSync(`curl -L -c /tmp/cookies.txt -b /tmp/cookies.txt "${downloadUrl}" -o ${inputAudio}`, { stdio: 'inherit' });
     } else {
-        throw new Error("❌ Debes enviar audioBase64 o audioUrl (MP3 o Google Drive)");
+        throw new Error("Debes enviar audioBase64 o audioUrl");
     }
 
     // =========================
-    // ACELERAR AUDIO
+    // PROCESAR AUDIO — tempo + pitch + volumen aleatorios
     // =========================
-    execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=1.5" -ar 48000 audio_fast_${i}.mp3`, { stdio: 'inherit' });
+    execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=${audioTempo},asetrate=44100*${audioPitch},aresample=48000,volume=${audioVolume}" audio_fast_${i}.mp3`, { stdio: 'inherit' });
 
     // =========================
-    // DURACIÓN
+    // DURACION
     // =========================
     const duration = parseFloat(
         execSync(`ffprobe -i audio_fast_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`)
-            .toString()
-            .trim()
+            .toString().trim()
     );
-
-    console.log("Duración:", duration);
+    console.log("Duracion:", duration);
 
     // =========================
-    // SUBTÍTULOS
+    // SUBTITULOS
     // =========================
     const words = (text || "").toUpperCase().split(" ");
     const chunkSize = 2;
@@ -96,7 +117,6 @@ Format: Start,End,Style,Text
     }
 
     const partDuration = duration / parts.length;
-
     parts.forEach((p, idx) => {
         const start = idx * partDuration;
         const end = start + partDuration;
@@ -106,65 +126,36 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // IMAGEN — 1s efecto zoom in
+    // VIDEO — todas las transformaciones anti-deteccion aleatorias
     // =========================
-    execSync(`
-ffmpeg -y -loop 1 -i image_${i}.jpg -vf "
-fps=30,
-scale=480:854:force_original_aspect_ratio=decrease,
-pad=480:854:(ow-iw)/2:(oh-ih)/2,
-zoompan=z='min(zoom+0.05,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=30:s=480x854,
-setsar=1
-" -t 1 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p image_part_${i}.mp4
-`, { stdio: 'inherit' });
+    const remaining = Math.max(duration, 1);
+    const mirrorFilter = doMirror ? 'hflip,' : '';
+    const rotateFilter = rotation !== 0 ? `rotate=${rotation}*PI/180:ow=rotw(${rotation}*PI/180):oh=roth(${rotation}*PI/180),` : '';
+
+    const videoFilter = `setpts=PTS/${speed},${mirrorFilter}crop=iw*${cropFactor}:ih*${cropFactor}:(iw-iw*${cropFactor})/2:(ih-ih*${cropFactor})/2,${rotateFilter}eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation},noise=alls=${noise}:allf=t,scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+
+    execSync(`ffmpeg -y -i video_${i}.mp4 -vf "${videoFilter}" -t ${remaining} -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
-    // VIDEO
+    // FINAL — audio + subtitulos
     // =========================
-    const remaining = Math.max(duration - 1, 1);
-
-    execSync(`
-ffmpeg -y -i video_${i}.mp4 -vf "
-setpts=PTS/1.5,
-scale=480:854:force_original_aspect_ratio=decrease,
-pad=480:854:(ow-iw)/2:(oh-ih)/2,
-setsar=1
-" -t ${remaining} -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4
-`, { stdio: 'inherit' });
-
-    // =========================
-    // UNIR
-    // =========================
-    fs.writeFileSync(`list_${i}.txt`,
-`file 'image_part_${i}.mp4'
-file 'video_part_${i}.mp4'`);
-
-    execSync(`ffmpeg -y -f concat -safe 0 -i list_${i}.txt -c copy combined_${i}.mp4`, { stdio: 'inherit' });
-
-    // =========================
-    // FINAL
-    // =========================
-    execSync(`
-ffmpeg -y -i combined_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset ultrafast -crf 28 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4
-`, { stdio: 'inherit' });
+    execSync(`ffmpeg -y -i video_part_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset ultrafast -crf 28 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
     // GUARDAR
     // =========================
     const key = `output-${Date.now()}-${i}.mp4`;
     const bufferOut = fs.readFileSync(`output_${i}.mp4`);
-
     await Actor.setValue(key, bufferOut, { contentType: 'video/mp4' });
 
     const url = `https://api.apify.com/v2/key-value-stores/${storeId}/records/${key}`;
     console.log("VIDEO LISTO:", url);
-
     await Actor.pushData({ videoUrl: url });
 
     // =========================
     // LIMPIEZA
     // =========================
-    execSync(`rm -f image_${i}.jpg video_${i}.mp4 audio_${i}.mp3 audio_${i}.pcm audio_fast_${i}.mp3 image_part_${i}.mp4 video_part_${i}.mp4 combined_${i}.mp4 subs_${i}.ass list_${i}.txt output_${i}.mp4`);
+    execSync(`rm -f image_${i}.jpg video_${i}.mp4 audio_${i}.mp3 audio_${i}.pcm audio_fast_${i}.mp3 video_part_${i}.mp4 subs_${i}.ass output_${i}.mp4`);
 }
 
 await Actor.exit();
