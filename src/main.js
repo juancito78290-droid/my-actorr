@@ -10,46 +10,35 @@ const items = input.items || [];
 const store = await Actor.openKeyValueStore();
 const storeId = store.id;
 
-// Funcion para numero aleatorio entre min y max
 function rand(min, max) {
     return (Math.random() * (max - min) + min).toFixed(3);
 }
 
 for (let i = 0; i < items.length; i++) {
-    const { imageUrl, videoUrl, audioUrl, audioBase64, text: rawText } = items[i];
+    const { videoUrl, audioUrl, audioBase64, text: rawText } = items[i];
     const text = (rawText || "").replace(/[\x00-\x1F\x7F]/g, " ").trim();
 
     console.log(`\n=== ITEM ${i} ===`);
 
-    // =========================
-    // TRANSFORMACIONES ALEATORIAS — diferentes en cada ejecucion
-    // =========================
-    const doMirror = Math.random() > 0.5;                      // 50% chance de mirror
-    const speed = parseFloat(rand(1.3, 1.7));                  // velocidad entre 1.3x y 1.7x
-    const cropFactor = parseFloat(rand(0.92, 0.98));           // recorte entre 2% y 8%
-    const brightness = parseFloat(rand(-0.05, 0.08));          // brillo aleatorio
-    const contrast = parseFloat(rand(1.05, 1.20));             // contraste aleatorio
-    const saturation = parseFloat(rand(1.05, 1.35));           // saturacion aleatoria
-    const rotation = parseFloat(rand(-1.5, 1.5));              // rotacion leve
-    const noise = parseFloat(rand(2, 8));                      // grano de video
-    const audioTempo = speed;                                   // audio igual que video
-    const audioVolume = parseFloat(rand(0.9, 1.1));            // volumen aleatorio
-    const audioPitch = parseFloat(rand(0.95, 1.05));           // pitch aleatorio
+    const doMirror = Math.random() > 0.5;
+    const speed = parseFloat(rand(1.3, 1.7));
+    const cropFactor = parseFloat(rand(0.92, 0.98));
+    const brightness = parseFloat(rand(-0.05, 0.08));
+    const contrast = parseFloat(rand(1.05, 1.20));
+    const saturation = parseFloat(rand(1.05, 1.35));
+    const rotation = parseFloat(rand(-1.5, 1.5));
+    const noise = parseFloat(rand(2, 8));
+    const audioTempo = speed;
+    const audioVolume = parseFloat(rand(0.9, 1.1));
+    const audioPitch = parseFloat(rand(0.95, 1.05));
 
     console.log(`Mirror: ${doMirror}, Speed: ${speed}, Crop: ${cropFactor}`);
     console.log(`Brightness: ${brightness}, Contrast: ${contrast}, Saturation: ${saturation}`);
     console.log(`Rotation: ${rotation}, Noise: ${noise}`);
     console.log(`Audio tempo: ${audioTempo}, Volume: ${audioVolume}, Pitch: ${audioPitch}`);
 
-    // =========================
-    // DESCARGAR MEDIA
-    // =========================
-    execSync(`curl -L "${imageUrl}" -o image_${i}.jpg`, { stdio: 'inherit' });
     execSync(`curl -L "${videoUrl}" -o video_${i}.mp4`, { stdio: 'inherit' });
 
-    // =========================
-    // AUDIO DESDE BASE64 (Gemini TTS), URL MP3 o Google Drive
-    // =========================
     let inputAudio = `audio_${i}.mp3`;
 
     if (audioBase64) {
@@ -72,23 +61,14 @@ for (let i = 0; i < items.length; i++) {
         throw new Error("Debes enviar audioBase64 o audioUrl");
     }
 
-    // =========================
-    // PROCESAR AUDIO — tempo + pitch + volumen aleatorios
-    // =========================
     execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=${audioTempo},asetrate=44100*${audioPitch},aresample=48000,volume=${audioVolume}" audio_fast_${i}.mp3`, { stdio: 'inherit' });
 
-    // =========================
-    // DURACION
-    // =========================
     const duration = parseFloat(
         execSync(`ffprobe -i audio_fast_${i}.mp3 -show_entries format=duration -v quiet -of csv="p=0"`)
             .toString().trim()
     );
     console.log("Duracion:", duration);
 
-    // =========================
-    // SUBTITULOS
-    // =========================
     const words = (text || "").toUpperCase().split(" ");
     const chunkSize = 2;
     const parts = [];
@@ -125,25 +105,15 @@ Format: Start,End,Style,Text
 
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
-    // =========================
-    // VIDEO — todas las transformaciones anti-deteccion aleatorias
-    // =========================
     const remaining = Math.max(duration, 1);
     const mirrorFilter = doMirror ? 'hflip,' : '';
     const rotateFilter = rotation !== 0 ? `rotate=${rotation}*PI/180:ow=rotw(${rotation}*PI/180):oh=roth(${rotation}*PI/180),` : '';
-
     const videoFilter = `setpts=PTS/${speed},${mirrorFilter}crop=iw*${cropFactor}:ih*${cropFactor}:(iw-iw*${cropFactor})/2:(ih-ih*${cropFactor})/2,${rotateFilter}eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation},noise=alls=${noise}:allf=t,scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
     execSync(`ffmpeg -y -i video_${i}.mp4 -vf "${videoFilter}" -t ${remaining} -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4`, { stdio: 'inherit' });
 
-    // =========================
-    // FINAL — audio + subtitulos
-    // =========================
     execSync(`ffmpeg -y -i video_part_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset ultrafast -crf 28 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4`, { stdio: 'inherit' });
 
-    // =========================
-    // GUARDAR
-    // =========================
     const key = `output-${Date.now()}-${i}.mp4`;
     const bufferOut = fs.readFileSync(`output_${i}.mp4`);
     await Actor.setValue(key, bufferOut, { contentType: 'video/mp4' });
@@ -152,10 +122,7 @@ Format: Start,End,Style,Text
     console.log("VIDEO LISTO:", url);
     await Actor.pushData({ videoUrl: url });
 
-    // =========================
-    // LIMPIEZA
-    // =========================
-    execSync(`rm -f image_${i}.jpg video_${i}.mp4 audio_${i}.mp3 audio_${i}.pcm audio_fast_${i}.mp3 video_part_${i}.mp4 subs_${i}.ass output_${i}.mp4`);
+    execSync(`rm -f video_${i}.mp4 audio_${i}.mp3 audio_${i}.pcm audio_fast_${i}.mp3 video_part_${i}.mp4 subs_${i}.ass output_${i}.mp4`);
 }
 
 await Actor.exit();
