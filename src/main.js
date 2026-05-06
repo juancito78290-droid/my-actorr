@@ -10,7 +10,6 @@ const items = input.items || [];
 const store = await Actor.openKeyValueStore();
 const storeId = store.id;
 
-// Funcion para numero aleatorio entre min y max
 function rand(min, max) {
     return (Math.random() * (max - min) + min).toFixed(3);
 }
@@ -22,24 +21,19 @@ for (let i = 0; i < items.length; i++) {
     console.log(`\n=== ITEM ${i} ===`);
 
     // =========================
-    // TRANSFORMACIONES ALEATORIAS — diferentes en cada ejecucion
+    // TRANSFORMACIONES ALEATORIAS
     // =========================
     const doMirror = Math.random() > 0.5;                      // 50% chance de mirror
-    const speed = parseFloat(rand(1.3, 1.5));                  // velocidad entre 1.3x y 1.5x
-    const cropFactor = parseFloat(rand(0.92, 0.98));           // recorte entre 2% y 8%
+    const speed = parseFloat(rand(1.3, 1.5));                  // velocidad video aleatoria
+    const cropFactor = parseFloat(rand(0.92, 0.97));           // crop aleatorio entre 3% y 8%
     const brightness = parseFloat(rand(-0.05, 0.08));          // brillo aleatorio
     const contrast = parseFloat(rand(1.05, 1.20));             // contraste aleatorio
     const saturation = parseFloat(rand(1.05, 1.35));           // saturacion aleatoria
-    const rotation = parseFloat(rand(-1.5, 1.5));              // rotacion leve
-    const noise = parseFloat(rand(2, 8));                      // grano de video
-    const audioTempo = speed;                                   // audio igual que video
-    const audioVolume = parseFloat(rand(0.9, 1.1));            // volumen aleatorio
-    const audioPitch = parseFloat(rand(0.95, 1.05));           // pitch aleatorio
+    const audioTempo = 1.3;                                    // audio siempre a 1.3x
 
     console.log(`Mirror: ${doMirror}, Speed: ${speed}, Crop: ${cropFactor}`);
     console.log(`Brightness: ${brightness}, Contrast: ${contrast}, Saturation: ${saturation}`);
-    console.log(`Rotation: ${rotation}, Noise: ${noise}`);
-    console.log(`Audio tempo: ${audioTempo}, Volume: ${audioVolume}, Pitch: ${audioPitch}`);
+    console.log(`Audio tempo: ${audioTempo} (fijo)`);
 
     // =========================
     // DESCARGAR MEDIA
@@ -72,9 +66,9 @@ for (let i = 0; i < items.length; i++) {
     }
 
     // =========================
-    // PROCESAR AUDIO — tempo + pitch + volumen aleatorios
+    // PROCESAR AUDIO — tempo fijo 1.5x
     // =========================
-    execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=${audioTempo},asetrate=44100*${audioPitch},aresample=48000,volume=${audioVolume}" audio_fast_${i}.mp3`, { stdio: 'inherit' });
+    execSync(`ffmpeg -y -i ${inputAudio} -filter:a "atempo=${audioTempo}" -ar 48000 audio_fast_${i}.mp3`, { stdio: 'inherit' });
 
     // =========================
     // DURACION
@@ -98,12 +92,12 @@ for (let i = 0; i < items.length; i++) {
 
     let ass = `[Script Info]
 ScriptType: v4.00+
-PlayResX: 480
-PlayResY: 854
+PlayResX: 720
+PlayResY: 1280
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Bold
-Style: Default,DejaVu Sans,36,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,180,1
+Style: Default,DejaVu Sans,48,&H0000FFFF,&H00000000,&H00000000,1,3,0,2,20,20,240,1
 
 [Events]
 Format: Start,End,Style,Text
@@ -125,25 +119,24 @@ Format: Start,End,Style,Text
     fs.writeFileSync(`subs_${i}.ass`, ass);
 
     // =========================
-    // PRE-PROCESAR VIDEO — escalar a 480p y limitar a 35 segundos antes de transformaciones
+    // PRE-PROCESAR VIDEO — escalar a 720p y limitar a 30 segundos
     // =========================
-    execSync(`ffmpeg -y -i video_${i}.mp4 -vf "scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2,setsar=1" -t 35 -an -c:v libx264 -preset superfast -crf 28 -pix_fmt yuv420p video_pre_${i}.mp4`, { stdio: 'inherit' });
+    execSync(`ffmpeg -y -i video_${i}.mp4 -vf "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1" -t 30 -an -c:v libx264 -preset superfast -crf 28 -pix_fmt yuv420p video_pre_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
-    // VIDEO — todas las transformaciones anti-deteccion aleatorias
+    // VIDEO — transformaciones anti-deteccion
     // =========================
     const remaining = Math.max(duration, 1);
     const mirrorFilter = doMirror ? 'hflip,' : '';
-    const rotateFilter = rotation !== 0 ? `rotate=${rotation}*PI/180:ow=rotw(${rotation}*PI/180):oh=roth(${rotation}*PI/180),` : '';
+    const videoFilter = `setpts=PTS/${speed},${mirrorFilter}crop=iw*${cropFactor}:ih*${cropFactor}:(iw-iw*${cropFactor})/2:(ih-ih*${cropFactor})/2,eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation},scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
-    const videoFilter = `setpts=PTS/${speed},${mirrorFilter}crop=iw*${cropFactor}:ih*${cropFactor}:(iw-iw*${cropFactor})/2:(ih-ih*${cropFactor})/2,${rotateFilter}eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation},noise=alls=${noise}:allf=t,scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2,setsar=1`;
-
-    execSync(`ffmpeg -y -i video_pre_${i}.mp4 -vf "${videoFilter}" -t ${remaining} -an -c:v libx264 -preset superfast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4`, { stdio: 'inherit' });
+    // Loop del video si es mas corto que el audio
+    execSync(`ffmpeg -y -stream_loop -1 -i video_pre_${i}.mp4 -vf "${videoFilter}" -t ${remaining} -an -c:v libx264 -preset superfast -crf 28 -pix_fmt yuv420p video_part_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
     // FINAL — audio + subtitulos
     // =========================
-    execSync(`ffmpeg -y -i video_part_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset superfast -crf 28 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4`, { stdio: 'inherit' });
+    execSync(`ffmpeg -y -i video_part_${i}.mp4 -i audio_fast_${i}.mp3 -vf "ass=subs_${i}.ass,fps=30" -t ${duration} -c:v libx264 -preset superfast -crf 28 -maxrate 5M -bufsize 10M -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -movflags +faststart -shortest output_${i}.mp4`, { stdio: 'inherit' });
 
     // =========================
     // GUARDAR
@@ -163,4 +156,4 @@ Format: Start,End,Style,Text
 }
 
 await Actor.exit();
-        
+                
